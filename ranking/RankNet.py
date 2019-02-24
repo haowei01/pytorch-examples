@@ -50,6 +50,8 @@ class RankNet(nn.Module):
 ####
 def train():
     net = RankNet([136, 64, 16])
+    net.cuda()
+
     print(net)
 
     data_loader = DataLoader('data/mslr-web10k/Fold1/train.txt')
@@ -57,17 +59,22 @@ def train():
 
     optimizer = torch.optim.Adam(net.parameters())
     loss_func = torch.nn.BCELoss()
+    loss_func.cuda()
 
-    epoch = 1000
+    epoch = 100
+    batch_size = 2000
     losses = []
 
     for i in range(epoch):
-        for x_i, y_i, x_j, y_j in data_loader.generate_query_batch(df):
+
+        lossed_minibatch = []
+
+        for x_i, y_i, x_j, y_j in data_loader.generate_query_batch(df, batch_size):
             if x_i.shape[0] == 0:
                 continue
-            x_i, x_j = torch.Tensor(x_i), torch.Tensor(x_j)
+            x_i, x_j = torch.Tensor(x_i).cuda(), torch.Tensor(x_j).cuda()
             # binary label
-            y = torch.Tensor((y_i > y_j).astype(np.float32))
+            y = torch.Tensor((y_i > y_j).astype(np.float32)).cuda()
 
             net.zero_grad()
 
@@ -77,10 +84,13 @@ def train():
             loss.backward()
             optimizer.step()
 
-            losses.append(loss.item())
+            lossed_minibatch.append(loss.item())
 
-        if i % 100 == 0:
-            print(get_time(), 'Epoch{}, loss : {}'.format(i, loss.item()))
+            print(get_time(), 'Minibatch, loss : {}'.format(i, loss.item()))
+
+        losses.append(np.mean(lossed_minibatch))
+
+        print(get_time(), 'Epoch{}, loss : {}'.format(i, loss.item()))
 
 
 if __name__ == "__main__":
