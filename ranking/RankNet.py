@@ -68,6 +68,7 @@ def train():
     for i in range(epoch):
 
         lossed_minibatch = []
+        minibatch = 0
 
         for x_i, y_i, x_j, y_j in data_loader.generate_query_batch(df, batch_size):
             if x_i.shape[0] == 0:
@@ -86,11 +87,13 @@ def train():
 
             lossed_minibatch.append(loss.item())
 
-            print(get_time(), 'Minibatch, loss : {}'.format(i, loss.item()))
+            minibatch += 1
+            if minibatch % 100 == 0:
+                print(get_time(), 'Epoch {}, Minibatch: {}, loss : {}'.format(i, minibatch, loss.item()))
 
         losses.append(np.mean(lossed_minibatch))
 
-        print(get_time(), 'Epoch{}, loss : {}'.format(i, loss.item()))
+        print(get_time(), 'Epoch{}, loss : {}'.format(i, losses[-1]))
 
 
 if __name__ == "__main__":
