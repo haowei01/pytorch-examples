@@ -74,7 +74,7 @@ class DataLoader:
         for qid in df.qid.unique():
             x_i, x_j, y_i, y_j = self.generate_query_pairs(df, qid)
             if x_i_buf is None:
-                x_i_buf, y_i_buf, x_j_buf, y_j_buf = x_i, x_j, y_i, y_j
+                x_i_buf, y_i_buf, x_j_buf, y_j_buf = x_i, y_i, x_j, y_j
             else:
                 x_i_buf = np.vstack((x_i_buf, x_i))
                 y_i_buf = np.vstack((y_i_buf, y_i))
@@ -84,13 +84,13 @@ class DataLoader:
             while (idx + 1) * batchsize <= x_i_buf.shape[0]:
                 start = idx * batchsize
                 end = (idx + 1) * batchsize
-                yield x_i_buf[start: end, :],  y_i_buf[start: end, :], x_j_buf[start: end, :],  y_j_buf[start: end, :]
+                yield x_i_buf[start: end, :], y_i_buf[start: end, :], x_j_buf[start: end, :], y_j_buf[start: end, :]
                 idx += 1
 
             x_i_buf = x_i_buf[idx * batchsize:, :]
             y_i_buf = y_i_buf[idx * batchsize:, :]
             x_j_buf = x_j_buf[idx * batchsize:, :]
-            y_j_buf = x_j_buf[idx * batchsize:, :]
+            y_j_buf = y_j_buf[idx * batchsize:, :]
 
     def load(self):
         """

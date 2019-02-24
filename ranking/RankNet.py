@@ -62,7 +62,7 @@ def train():
     loss_func.cuda()
 
     epoch = 100
-    batch_size = 2000
+    batch_size = 10000
     losses = []
 
     for i in range(epoch):
