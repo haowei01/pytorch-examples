@@ -92,6 +92,8 @@ class DataLoader:
             x_j_buf = x_j_buf[idx * batchsize:, :]
             y_j_buf = y_j_buf[idx * batchsize:, :]
 
+        yield x_i_buf, y_i_buf, x_j_buf, y_j_buf
+
     def load(self):
         """
         :return: pandas.DataFrame

@@ -49,33 +49,43 @@ class RankNet(nn.Module):
 # test RankNet
 ####
 def train():
+    if torch.cuda.is_available():
+        device = "cuda:{}".format(np.random.randint(torch.cuda.device_count()))
+    else:
+        device = "cpu"
+    print("use device", device)
+
     net = RankNet([136, 64, 16])
-    net.cuda()
+    net.to(device)
 
     print(net)
 
     data_loader = DataLoader('data/mslr-web10k/Fold1/train.txt')
     df = data_loader.load()
 
-    optimizer = torch.optim.Adam(net.parameters())
+    optimizer = torch.optim.Adam(net.parameters(), lr=0.0001)
     loss_func = torch.nn.BCELoss()
-    loss_func.cuda()
+    loss_func.to(device)
 
     epoch = 100
-    batch_size = 10000
+    batch_size = 100000
     losses = []
 
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
+
     for i in range(epoch):
+
+        scheduler.step()
 
         lossed_minibatch = []
         minibatch = 0
 
         for x_i, y_i, x_j, y_j in data_loader.generate_query_batch(df, batch_size):
-            if x_i.shape[0] == 0:
+            if x_i is None or x_i.shape[0] == 0:
                 continue
-            x_i, x_j = torch.Tensor(x_i).cuda(), torch.Tensor(x_j).cuda()
+            x_i, x_j = torch.Tensor(x_i).to(device), torch.Tensor(x_j).to(device)
             # binary label
-            y = torch.Tensor((y_i > y_j).astype(np.float32)).cuda()
+            y = torch.Tensor((y_i > y_j).astype(np.float32)).to(device)
 
             net.zero_grad()
 
