@@ -10,9 +10,12 @@ score, the difference is sent to a sigmoid function.
 The loss function can use cross entropy loss.
 """
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from load_mslr import DataLoader, get_time
 
 
 class RankNet(nn.Module):
@@ -27,28 +30,30 @@ class RankNet(nn.Module):
         setattr(self, 'layer' + str(len(net_structures)), nn.Linear(net_structures[-1], 1))
 
     def forward(self, input1, input2):
-        for i in range(self.fc_layers):
-            fc = getattr(self, 'layer' + str(i + 1))
+        # from 1 to N - 1 layer, use ReLU as activation function
+        for i in range(1, self.fc_layers):
+            fc = getattr(self, 'layer' + str(i))
             input1 = F.relu(fc(input1))
             input2 = F.relu(fc(input2))
 
-        return F.sigmoid(input1 - input2)
+        # last layer use Sigmoid Activation Function
+        fc = getattr(self, 'layer' + str(self.fc_layers))
+        input1 = torch.sigmoid(fc(input1))
+        input2 = torch.sigmoid(fc(input2))
+
+        # normalize input1 - input2 with a sigmoid func
+        return torch.sigmoid(input1 - input2)
 
 
 ####
 # test RankNet
 ####
-def test_RankNet():
-    n_samples = 3000
-    features = 300
-
-    net = RankNet([features, 64])
+def train():
+    net = RankNet([136, 64, 16])
     print(net)
 
-    data1 = torch.rand((n_samples, features))
-    data2 = torch.rand((n_samples, features))
-
-    y = (torch.rand((n_samples, 1)) > 0.9).type(torch.float32)
+    data_loader = DataLoader('data/mslr-web10k/Fold1/train.txt')
+    df = data_loader.load()
 
     optimizer = torch.optim.Adam(net.parameters())
     loss_func = torch.nn.BCELoss()
@@ -57,15 +62,26 @@ def test_RankNet():
     losses = []
 
     for i in range(epoch):
-        net.zero_grad()
+        for x_i, y_i, x_j, y_j in data_loader.generate_query_batch(df):
+            if x_i.shape[0] == 0:
+                continue
+            x_i, x_j = torch.Tensor(x_i), torch.Tensor(x_j)
+            # binary label
+            y = torch.Tensor((y_i > y_j).astype(np.float32))
 
-        y_pred = net(data1, data2)
-        loss = loss_func(y_pred, y)
+            net.zero_grad()
 
-        loss.backward()
-        optimizer.step()
+            y_pred = net(x_i, x_j)
+            loss = loss_func(y_pred, y)
 
-        losses.append(loss.item())
+            loss.backward()
+            optimizer.step()
+
+            losses.append(loss.item())
 
         if i % 100 == 0:
-            print('Epoch{}, loss : {}'.format(i, loss.item()))
+            print(get_time(), 'Epoch{}, loss : {}'.format(i, loss.item()))
+
+
+if __name__ == "__main__":
+    train()
