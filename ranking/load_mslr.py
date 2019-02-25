@@ -1,6 +1,6 @@
 """
 Microsoft Learning to Rank Dataset:
-http://research.microsoft.com/en-us/um/beijing/projects/letor/
+https://www.microsoft.com/en-us/research/project/mslr/
 """
 import datetime
 import pandas as pd
@@ -9,6 +9,7 @@ import numpy as np
 
 def get_time():
     return datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
 
 class DataLoader:
 

@@ -1,3 +1,6 @@
 .idea/*
+
 *.pyc
+
 ranking/data/mslr-*
+ranking/ckptdir/
