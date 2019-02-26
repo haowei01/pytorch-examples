@@ -12,12 +12,14 @@ The loss function can use cross entropy loss.
 
 import os
 
+import pandas as pd
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from load_mslr import DataLoader, get_time
+from metrics import NDCG
 
 
 class RankNet(nn.Module):
@@ -47,6 +49,20 @@ class RankNet(nn.Module):
         return torch.sigmoid(input1 - input2)
 
 
+class RankNetInference(RankNet):
+    def __init__(self, net_structures):
+        super(RankNetInference, self).__init__(net_structures)
+
+    def forward(self, input1):
+        for i in range(1, self.fc_layers):
+            fc = getattr(self, 'fc' + str(i))
+            input1 = F.relu(fc(input1))
+
+        # last layer use Sigmoid Activation Function
+        fc = getattr(self, 'fc' + str(self.fc_layers))
+        return torch.sigmoid(fc(input1))
+
+
 ####
 # test RankNet
 ####
@@ -62,6 +78,11 @@ def train():
     net = RankNet(ranknet_structure)
     net.to(device)
     print(net)
+
+    net_inference = RankNetInference(ranknet_structure)
+    net_inference.to(device)
+    net_inference.eval()
+    print(net_inference)
 
     net_name = 'ranknet-{}'.format('-'.join([str(x) for x in ranknet_structure]))
     ckptdir = os.path.join(os.path.dirname(__file__), 'ckptdir')
@@ -98,7 +119,7 @@ def train():
         lossed_minibatch = []
         minibatch = 0
 
-        for x_i, y_i, x_j, y_j in data_loader.generate_query_batch(df, batch_size):
+        for x_i, y_i, x_j, y_j in data_loader.generate_query_pair_batch(df, batch_size):
             if x_i is None or x_i.shape[0] == 0:
                 continue
             x_i, x_j = torch.Tensor(x_i).to(device), torch.Tensor(x_j).to(device)
@@ -126,15 +147,17 @@ def train():
         # save to checkpoint every 5 step, and run eval
         if i % 5 == 0:
             save_to_ckpt(ckptfile, i, net, optimizer, scheduler)
-            eval_model(net, loss_func, device, df_valid, valid_loader)
+            net_inference.load_state_dict(net.state_dict())
+            eval_model(net, net_inference, loss_func, device, df_valid, valid_loader)
 
     # save the final model
     torch.save(net.state_dict(), ckptfile)
 
 
-def eval_model(model, loss_func, device, df_valid, valid_loader):
+def eval_model(model, inference_model, loss_func, device, df_valid, valid_loader):
     """
     :param model: torch.nn.Module
+    :param inference_model: torch.nn.Module
     :param loss_func: loss function
     :param device: str, cpu or cuda:id
     :param df_valid: pandas.DataFrame with validation data
@@ -148,7 +171,7 @@ def eval_model(model, loss_func, device, df_valid, valid_loader):
 
     with torch.no_grad():
         print(get_time(), 'Eval phase, with batch size of {}'.format(batch_size))
-        for x_i, y_i, x_j, y_j in valid_loader.generate_query_batch(df_valid, batch_size):
+        for x_i, y_i, x_j, y_j in valid_loader.generate_query_pair_batch(df_valid, batch_size):
             if x_i is None or x_i.shape[0] == 0:
                 continue
             x_i, x_j = torch.Tensor(x_i).to(device), torch.Tensor(x_j).to(device)
@@ -165,6 +188,37 @@ def eval_model(model, loss_func, device, df_valid, valid_loader):
                 print(get_time(), 'Eval Phase: Minibatch: {}, loss : {}'.format(minibatch, loss.item()))
 
         print(get_time(), 'Eval Phase: loss : {}'.format(np.mean(lossed_minibatch)))
+
+        print("Eval Phase evaluate NDCG @10, @30")
+        ndcg10, ndcg30 = NDCG(10), NDCG(30)
+        qids, rels, scores = [], [], []
+        for qid, rel, x in valid_loader.generate_query_batch(df_valid, batch_size):
+            if x is None or x.shape[0] == 0:
+                continue
+            y_tensor = inference_model.forward(torch.Tensor(x).to(device))
+            scores.append(y_tensor.numpy().squeeze())
+            qids.append(qid)
+            rels.append(rel)
+
+        qids = np.hstack(qids)
+        rels = np.hstack(rels)
+        scores = np.hstack(scores)
+        result_df = pd.DataFrame({'qid': qids, 'rel': rels, 'score': scores})
+        session_ndcg10, session_ndcg30 = [], []
+        for qid in result_df.qid.unique():
+            result_qid = result_df[result_df.qid == qid].sort_values('score', ascending=False)
+            rel_rank = result_qid.rel.values
+            session_ndcg30.append(ndcg30.evaluate(rel_rank))
+            session_ndcg10.append(ndcg10.evaluate(rel_rank))
+        print(
+            get_time(),
+            "Eval Phase evaluate NDCG @10 {}, @30 {}".format(
+                np.mean(session_ndcg10), np.mean(session_ndcg30)
+            ),
+        )
+
+
+
 
 
 def save_to_ckpt(ckpt_file, epoch, model, optimizer, lr_scheduler):

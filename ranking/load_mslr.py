@@ -66,7 +66,7 @@ class DataLoader:
             x_j.append(df_merged[['{}_y'.format(i) for i in range(1, self.num_features + 1)]].values)
         return np.vstack(x_i), np.vstack(y_i), np.vstack(x_j), np.vstack(y_j)
 
-    def generate_query_batch(self, df, batchsize=2000):
+    def generate_query_pair_batch(self, df, batchsize=2000):
         """
         :param df: pandas.DataFrame, contains column qid
         :returns: numpy.ndarray of x_i, y_i, x_j, y_j
@@ -94,6 +94,17 @@ class DataLoader:
             y_j_buf = y_j_buf[idx * batchsize:, :]
 
         yield x_i_buf, y_i_buf, x_j_buf, y_j_buf
+
+    def generate_query_batch(self, df, batchsize=100000):
+        """
+        :param df: pandas.DataFrame, contains column qid
+        :returns: numpy.ndarray qid, rel, x_i
+        """
+        idx = 0
+        while idx * batchsize < df.shape[0]:
+            r = df.iloc[idx * batchsize: (idx + 1) * batchsize, :]
+            yield r.qid.values, r.rel.values, r[['{}'.format(i) for i in range(1, self.num_features + 1)]].values
+            idx += 1
 
     def load(self):
         """
