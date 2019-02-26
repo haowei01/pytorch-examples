@@ -208,8 +208,12 @@ def eval_model(model, inference_model, loss_func, device, df_valid, valid_loader
         for qid in result_df.qid.unique():
             result_qid = result_df[result_df.qid == qid].sort_values('score', ascending=False)
             rel_rank = result_qid.rel.values
-            session_ndcg30.append(ndcg30.evaluate(rel_rank))
-            session_ndcg10.append(ndcg10.evaluate(rel_rank))
+            n10 = ndcg10.evaluate(rel_rank)
+            n30 = ndcg30.evaluate(rel_rank)
+            if not np.isnan(n10) and not np.isnan(n30):
+                session_ndcg10.append(n10)
+                session_ndcg30.append(n30)
+
         print(
             get_time(),
             "Eval Phase evaluate NDCG @10 {}, @30 {}".format(
