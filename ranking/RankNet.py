@@ -196,7 +196,7 @@ def eval_model(model, inference_model, loss_func, device, df_valid, valid_loader
             if x is None or x.shape[0] == 0:
                 continue
             y_tensor = inference_model.forward(torch.Tensor(x).to(device))
-            scores.append(y_tensor.numpy().squeeze())
+            scores.append(y_tensor.cpu().numpy().squeeze())
             qids.append(qid)
             rels.append(rel)
 
@@ -220,9 +220,6 @@ def eval_model(model, inference_model, loss_func, device, df_valid, valid_loader
                 np.mean(session_ndcg10), np.mean(session_ndcg30)
             ),
         )
-
-
-
 
 
 def save_to_ckpt(ckpt_file, epoch, model, optimizer, lr_scheduler):
