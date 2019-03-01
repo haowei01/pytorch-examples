@@ -248,7 +248,7 @@ def load_from_ckpt(ckpt_file, epoch, model):
     if os.path.isfile(ckpt_file):
         print(get_time(), 'load from ckpt {}'.format(ckpt_file))
         ckpt_state_dict = torch.load(ckpt_file)
-        model.load_state(ckpt_state_dict['model_state_dict'])
+        model.load_state_dict(ckpt_state_dict['model_state_dict'])
         print(get_time(), 'finish load from ckpt {}'.format(ckpt_file))
     else:
         print('ckpt file does not exist {}'.format(ckpt_file))
