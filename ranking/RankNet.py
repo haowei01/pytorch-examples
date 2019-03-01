@@ -10,7 +10,9 @@ score, the difference is sent to a sigmoid function.
 The loss function can use cross entropy loss.
 """
 
+import argparse
 import os
+import sys
 
 import pandas as pd
 import numpy as np
@@ -66,7 +68,8 @@ class RankNetInference(RankNet):
 ####
 # test RankNet
 ####
-def train():
+def train(start_epoch=0, additional_epoch=100, lr=0.0001):
+    print("start_epoch:{}, additional_epoch:{}, lr:{}".format(start_epoch, additional_epoch, lr))
     if torch.cuda.is_available():
         device = "cuda:{}".format(np.random.randint(torch.cuda.device_count()))
     else:
@@ -91,6 +94,16 @@ def train():
     ckptfile = os.path.join(ckptdir, net_name)
     print("checkpoint dir:", ckptfile)
 
+    optimizer = torch.optim.Adam(net.parameters(), lr=float(lr))
+    loss_func = torch.nn.BCELoss()
+    loss_func.to(device)
+
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
+
+    # try to load from the ckpt before start training
+    if start_epoch != 0:
+        load_from_ckpt(ckptfile, start_epoch, net)
+
     data_dir = 'data/mslr-web10k/Fold1/'
 
     train_data = os.path.join(os.path.dirname(__file__), data_dir, 'train.txt')
@@ -101,17 +114,10 @@ def train():
     valid_loader = DataLoader(valid_data)
     df_valid = valid_loader.load()
 
-    optimizer = torch.optim.Adam(net.parameters(), lr=0.0001)
-    loss_func = torch.nn.BCELoss()
-    loss_func.to(device)
-
-    epoch = 100
     batch_size = 100000
     losses = []
 
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
-
-    for i in range(epoch):
+    for i in range(start_epoch, start_epoch + additional_epoch):
 
         scheduler.step()
         net.train()
@@ -149,6 +155,9 @@ def train():
             save_to_ckpt(ckptfile, i, net, optimizer, scheduler)
             net_inference.load_state_dict(net.state_dict())
             eval_model(net, net_inference, loss_func, device, df_valid, valid_loader)
+
+    # save the last ckpt
+    save_to_ckpt(ckptfile, start_epoch + additional_epoch, net, optimizer, scheduler)
 
     # save the final model
     torch.save(net.state_dict(), ckptfile)
@@ -234,5 +243,21 @@ def save_to_ckpt(ckpt_file, epoch, model, optimizer, lr_scheduler):
     print(get_time(), 'finish save to ckpt {}'.format(ckpt_file))
 
 
+def load_from_ckpt(ckpt_file, epoch, model):
+    ckpt_file = ckpt_file + '_{}'.format(epoch)
+    if os.path.isfile(ckpt_file):
+        print(get_time(), 'load from ckpt {}'.format(ckpt_file))
+        ckpt_state_dict = torch.load(ckpt_file)
+        model.load_state(ckpt_state_dict['model_state_dict'])
+        print(get_time(), 'finish load from ckpt {}'.format(ckpt_file))
+    else:
+        print('ckpt file does not exist {}'.format(ckpt_file))
+
+
 if __name__ == "__main__":
-    train()
+    parser = argparse.ArgumentParser(description="additional training specification")
+    parser.add_argument("--start_epoch", dest="start_epoch", type=int, default=0)
+    parser.add_argument("--additional_epoch", dest="additional_epoch", type=int, default=100)
+    parser.add_argument("--lr", dest="lr", type=float, default=0.0001)
+    args = parser.parse_args()
+    train(args.start_epoch, args.additional_epoch, args.lr)

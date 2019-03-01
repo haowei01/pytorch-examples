@@ -43,7 +43,7 @@ class DataLoader:
         for col in [str(f) for f in range(1, len(df.columns) - 1)]:
             df[col] = df[col].astype(np.float32)
 
-        print(get_time(), "finishe parsing dataframe")
+        print(get_time(), "finish parsing dataframe")
         return df
 
     def generate_query_pairs(self, df, qid):
