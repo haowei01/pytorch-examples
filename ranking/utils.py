@@ -69,7 +69,9 @@ def eval_ndcg_at_k(inference_model, device, df_valid, valid_loader, batch_size, 
     for qid in result_df.qid.unique():
         result_qid = result_df[result_df.qid == qid].sort_values('score', ascending=False)
         rel_rank = result_qid.rel.values
-        for k, ndcg in ndcg_metrics.iteritems():
+        for k, ndcg in ndcg_metrics.items():
+            if ndcg.maxDCG(rel_rank) == 0:
+                continue
             ndcg_k = ndcg.evaluate(rel_rank)
             if not np.isnan(ndcg_k):
                 session_ndcgs[k].append(ndcg_k)

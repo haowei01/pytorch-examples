@@ -15,6 +15,7 @@ ListWise Rank
 """
 import argparse
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -48,7 +49,7 @@ class LambdaRank(nn.Module):
 
         # last layer is fully connected not using additional activation func
         fc = getattr(self, 'fc' + str(self.fc_layers))
-        return fc
+        return fc(input1)
 
 
 #####################
@@ -77,10 +78,14 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001):
 
         net.train()
         net.zero_grad()
+        count = 0
 
         for X, Y in train_loader.generate_batch_per_query(df_train):
 
             N = 1.0 / ideal_dcg.maxDCG(Y)
+            if np.isnan(N):
+                # negative session, cannot learn useful signal
+                continue
 
             X_tensor = torch.Tensor(X).to(device)
             Y_tensor = torch.Tensor(Y).to(device).view(-1, 1)
@@ -99,7 +104,12 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001):
 
             y_pred.backward(lambda_update)
 
-            optimizer.step()
+            count += 1
+            if count % 100 == 0:
+                optimizer.step()
+                net.zero_grad()
+
+        optimizer.step()
 
         eval_ndcg_at_k(net, device, df_valid, valid_loader, 100000, [10, 30])
 
