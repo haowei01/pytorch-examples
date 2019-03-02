@@ -12,16 +12,19 @@ The loss function can use cross entropy loss.
 
 import argparse
 import os
-import sys
 
-import pandas as pd
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from load_mslr import DataLoader, get_time
-from metrics import NDCG
+from load_mslr import get_time
+from utils import (
+    eval_ndcg_at_k,
+    get_device,
+    get_ckptdir,
+    load_train_vali_data,
+)
 
 
 class RankNet(nn.Module):
@@ -65,16 +68,12 @@ class RankNetInference(RankNet):
         return torch.sigmoid(fc(input1))
 
 
-####
+##############
 # test RankNet
-####
+##############
 def train(start_epoch=0, additional_epoch=100, lr=0.0001):
     print("start_epoch:{}, additional_epoch:{}, lr:{}".format(start_epoch, additional_epoch, lr))
-    if torch.cuda.is_available():
-        device = "cuda:{}".format(np.random.randint(torch.cuda.device_count()))
-    else:
-        device = "cpu"
-    print("use device", device)
+    device = get_device()
 
     ranknet_structure = [136, 64, 16]
 
@@ -87,12 +86,7 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001):
     net_inference.eval()
     print(net_inference)
 
-    net_name = 'ranknet-{}'.format('-'.join([str(x) for x in ranknet_structure]))
-    ckptdir = os.path.join(os.path.dirname(__file__), 'ckptdir')
-    if not os.path.exists(ckptdir):
-        os.makedirs(ckptdir)
-    ckptfile = os.path.join(ckptdir, net_name)
-    print("checkpoint dir:", ckptfile)
+    ckptfile = get_ckptdir('ranknet', ranknet_structure)
 
     optimizer = torch.optim.Adam(net.parameters(), lr=float(lr))
     loss_func = torch.nn.BCELoss()
@@ -104,15 +98,8 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001):
     if start_epoch != 0:
         load_from_ckpt(ckptfile, start_epoch, net)
 
-    data_dir = 'data/mslr-web10k/Fold1/'
-
-    train_data = os.path.join(os.path.dirname(__file__), data_dir, 'train.txt')
-    data_loader = DataLoader(train_data)
-    df = data_loader.load()
-
-    valid_data = os.path.join(os.path.dirname(__file__), data_dir, 'vali.txt')
-    valid_loader = DataLoader(valid_data)
-    df_valid = valid_loader.load()
+    data_fold = 'Fold1'
+    data_loader, df, valid_loader, df_valid = load_train_vali_data(data_fold)
 
     batch_size = 100000
     losses = []
@@ -198,37 +185,7 @@ def eval_model(model, inference_model, loss_func, device, df_valid, valid_loader
 
         print(get_time(), 'Eval Phase: loss : {}'.format(np.mean(lossed_minibatch)))
 
-        print("Eval Phase evaluate NDCG @10, @30")
-        ndcg10, ndcg30 = NDCG(10), NDCG(30)
-        qids, rels, scores = [], [], []
-        for qid, rel, x in valid_loader.generate_query_batch(df_valid, batch_size):
-            if x is None or x.shape[0] == 0:
-                continue
-            y_tensor = inference_model.forward(torch.Tensor(x).to(device))
-            scores.append(y_tensor.cpu().numpy().squeeze())
-            qids.append(qid)
-            rels.append(rel)
-
-        qids = np.hstack(qids)
-        rels = np.hstack(rels)
-        scores = np.hstack(scores)
-        result_df = pd.DataFrame({'qid': qids, 'rel': rels, 'score': scores})
-        session_ndcg10, session_ndcg30 = [], []
-        for qid in result_df.qid.unique():
-            result_qid = result_df[result_df.qid == qid].sort_values('score', ascending=False)
-            rel_rank = result_qid.rel.values
-            n10 = ndcg10.evaluate(rel_rank)
-            n30 = ndcg30.evaluate(rel_rank)
-            if not np.isnan(n10) and not np.isnan(n30):
-                session_ndcg10.append(n10)
-                session_ndcg30.append(n30)
-
-        print(
-            get_time(),
-            "Eval Phase evaluate NDCG @10 {}, @30 {}".format(
-                np.mean(session_ndcg10), np.mean(session_ndcg30)
-            ),
-        )
+        eval_ndcg_at_k(inference_model, device, df_valid, valid_loader, batch_size, [10, 30])
 
 
 def save_to_ckpt(ckpt_file, epoch, model, optimizer, lr_scheduler):

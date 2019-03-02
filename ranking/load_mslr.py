@@ -106,6 +106,16 @@ class DataLoader:
             yield r.qid.values, r.rel.values, r[['{}'.format(i) for i in range(1, self.num_features + 1)]].values
             idx += 1
 
+    def generate_batch_per_query(self, df):
+        """
+        :param df: pandas.DataFrame
+        :return: X for features, y for relavance
+        :rtype: numpy.ndarray, numpy.ndarray
+        """
+        for qid in df.qid.unique():
+            df_qid = df[df.qid == qid]
+            yield df_qid[['{}'.format(i) for i in range(1, self.num_features + 1)]].values, df_qid.rel.values
+
     def load(self):
         """
         :return: pandas.DataFrame

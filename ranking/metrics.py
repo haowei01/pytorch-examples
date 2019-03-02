@@ -70,6 +70,14 @@ class NDCG(DCG):
         idcg = super(NDCG, self).evaluate(ideal)
         return dcg / idcg
 
+    def maxDCG(self, targets):
+        """
+        :param targets: ranked list with relevance
+        :return:
+        """
+        ideal = np.sort(targets)[::-1]
+        return super(NDCG, self).evaluate(ideal)
+
 
 if __name__ == "__main__":
     targets = [3, 2, 3, 0, 1, 2, 3, 2]
@@ -79,3 +87,4 @@ if __name__ == "__main__":
     assert 0.785 < ndcg6.evaluate(targets) < 0.786
     ndcg10 = NDCG(10)
     assert 0 < ndcg10.evaluate(targets) < 1.0
+    assert 0 < ndcg10.evaluate([1, 2, 3]) < 1.0

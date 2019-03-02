@@ -4,5 +4,7 @@
 
 * RankNet
 
+* LambdaRank
+
 ## Dependencies:
 pytorch-1.0
