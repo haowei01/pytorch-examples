@@ -1,7 +1,7 @@
 """
 Common function used in training Learn to Rank
 """
-from argparse import ArgumentParser
+from argparse import ArgumentParser, ArgumentTypeError
 from collections import defaultdict
 import os
 
@@ -32,31 +32,49 @@ def get_ckptdir(net_name, net_structure):
     return ckptfile
 
 
-def load_train_vali_data(data_fold):
+def save_to_ckpt(ckpt_file, epoch, model, optimizer, lr_scheduler):
+    ckpt_file = ckpt_file + '_{}'.format(epoch)
+    print(get_time(), 'save to ckpt {}'.format(ckpt_file))
+    torch.save({
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'lr_scheduler': lr_scheduler.state_dict(),
+    }, ckpt_file)
+    print(get_time(), 'finish save to ckpt {}'.format(ckpt_file))
+
+
+def load_train_vali_data(data_fold, small_dataset=False):
     """
     :param data_fold: str, which fold's data was going to use to train
     :return:
     """
+    if small_dataset:
+        train_file, valid_file = "vali.txt", "test.txt"
+    else:
+        train_file, valid_file = "train.txt", "vali.txt"
+
     data_dir = 'data/mslr-web10k/'
-    train_data = os.path.join(os.path.dirname(__file__), data_dir, data_fold, 'train.txt')
+    train_data = os.path.join(os.path.dirname(__file__), data_dir, data_fold, train_file)
     train_loader = DataLoader(train_data)
     df_train = train_loader.load()
 
-    valid_data = os.path.join(os.path.dirname(__file__), data_dir, data_fold, 'vali.txt')
+    valid_data = os.path.join(os.path.dirname(__file__), data_dir, data_fold, valid_file)
     valid_loader = DataLoader(valid_data)
     df_valid = valid_loader.load()
     return train_loader, df_train, valid_loader, df_valid
 
 
-def eval_cross_entropy_loss(inference_model, device, df_valid, valid_loader):
+def eval_cross_entropy_loss(inference_model, device, df_valid, valid_loader, sigma=1.0):
     """
     formula in https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/MSR-TR-2010-82.pdf
 
     C = 0.5 * (1 - S_ij) * sigma * (si - sj) + log(1 + exp(-sigma * (si - sj)))
     when S_ij = 1:  C = log(1 + exp(-sigma(si - sj)))
     when S_ij = -1: C = log(1 + exp(-sigma(sj - si)))
+    sigma can change the shape of the curve
     """
-    print("Eval Phase evaluate pairwise cross entropy loss")
+    # print("Eval Phase evaluate pairwise cross entropy loss")
     inference_model.eval()
     with torch.no_grad():
         total_cost = 0
@@ -67,7 +85,7 @@ def eval_cross_entropy_loss(inference_model, device, df_valid, valid_loader):
             Y_tensor = torch.Tensor(Y).to(device).view(-1, 1)
             y_pred = inference_model(X_tensor)
             y_pred_sigmoid = torch.sigmoid(y_pred)
-            C = torch.log(1 + torch.exp(-(y_pred_sigmoid - y_pred_sigmoid.t())))
+            C = torch.log(1 + torch.exp(-sigma * (y_pred_sigmoid - y_pred_sigmoid.t())))
 
             rel_diff = Y_tensor - Y_tensor.t()
             Sij = torch.zeros(rel_diff.shape).to(device).type(torch.float32)
@@ -75,8 +93,7 @@ def eval_cross_entropy_loss(inference_model, device, df_valid, valid_loader):
             neg_pairs = (rel_diff < 0).type(torch.float32)
             Sij = Sij + pos_pairs - neg_pairs
 
-            C += 0.5 * (1 - Sij) * (y_pred_sigmoid - y_pred_sigmoid.t())
-            import ipdb; ipdb.set_trace()
+            C += 0.5 * (1 - Sij) * sigma * (y_pred_sigmoid - y_pred_sigmoid.t())
             cost = torch.sum(C, (0, 1), keepdim=True)
             cost = cost.data.cpu().numpy()[0][0]
             total_cost += cost
@@ -86,7 +103,7 @@ def eval_cross_entropy_loss(inference_model, device, df_valid, valid_loader):
     print(get_time(), "Eval Phase pairwise corss entropy loss {:.6f}".format(avg_cost))
 
 def eval_ndcg_at_k(inference_model, device, df_valid, valid_loader, batch_size, k_list):
-    print("Eval Phase evaluate NDCG @ {}".format(k_list))
+    # print("Eval Phase evaluate NDCG @ {}".format(k_list))
     ndcg_metrics = {k: NDCG(k) for k in k_list}
     qids, rels, scores = [], [], []
     inference_model.eval()
@@ -118,10 +135,24 @@ def eval_ndcg_at_k(inference_model, device, df_valid, valid_loader, batch_size, 
     print(get_time(), "Eval Phase evaluate {}".format(ndcg_result))
 
 
+def str2bool(v):
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise ArgumentTypeError('Boolean value expected.')
+
+
 def parse_args():
     parser = ArgumentParser(description="additional training specification")
     parser.add_argument("--start_epoch", dest="start_epoch", type=int, default=0)
     parser.add_argument("--additional_epoch", dest="additional_epoch", type=int, default=100)
     parser.add_argument("--lr", dest="lr", type=float, default=0.0001)
     parser.add_argument("--optim", dest="optim", type=str, default="adam", choices=["adam", "sgd"])
+    parser.add_argument(
+        "--ndcg_gain_in_train", dest="ndcg_gain_in_train",
+        type=str, default="exp2", choices=["exp2","identity"]
+    )
+    parser.add_argument("--small_dataset", type=str2bool, nargs='?', const=True, default=False)
     return parser.parse_args()

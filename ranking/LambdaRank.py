@@ -19,6 +19,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from load_mslr import get_time
 from metrics import NDCG
 from utils import (
     eval_cross_entropy_loss,
@@ -27,6 +28,7 @@ from utils import (
     get_ckptdir,
     load_train_vali_data,
     parse_args,
+    save_to_ckpt,
 )
 
 
@@ -56,7 +58,7 @@ class LambdaRank(nn.Module):
 #####################
 # test LambdaRank
 ######################
-def train(start_epoch=0, additional_epoch=100, lr=0.0001):
+def train(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam", ndcg_gain_in_train="exp2", small_dataset=False):
     print("start_epoch:{}, additional_epoch:{}, lr:{}".format(start_epoch, additional_epoch, lr))
     device = get_device()
 
@@ -69,7 +71,7 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001):
     ckptfile = get_ckptdir('lambdarank', lambdarank_structure)
 
     data_fold = 'Fold1'
-    train_loader, df_train, valid_loader, df_valid = load_train_vali_data(data_fold)
+    train_loader, df_train, valid_loader, df_valid = load_train_vali_data(data_fold, small_dataset)
 
     if optim == "adam":
         optimizer = torch.optim.Adam(net.parameters(), lr=lr)
@@ -79,10 +81,12 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001):
         raise ValueError("Optimization method {} not implemented".format(optim))
     print(optimizer)
 
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.85)
+
     ideal_dcg = NDCG(2**9)
 
     for i in range(start_epoch, start_epoch + additional_epoch):
-
+        scheduler.step()
         net.train()
         net.zero_grad()
         count = 0
@@ -102,25 +106,44 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001):
                 rank_order = torch.argsort(y_pred, dim=0, descending=True).type(torch.float) + 1.0
 
                 score_diff = 1.0 + torch.exp(y_pred - y_pred.t())
-                gain_diff = torch.pow(2.0, Y_tensor - Y_tensor.t())
+                if ndcg_gain_in_train == "exp2":
+                    gain_diff = torch.pow(2.0, Y_tensor - Y_tensor.t())
+                elif ndcg_gain_in_train == "identity":
+                    gain_diff = Y_tensor - Y_tensor.t()
+                else:
+                    raise ValueError("ndcg_gain method not supported yet {}".format(ndcg_gain_in_train))
+
                 decay_diff = 1.0 / torch.log2(rank_order + 1.0) - 1.0 / torch.log2(rank_order.t() + 1.0)
 
                 lambda_update = N * score_diff * gain_diff * decay_diff
                 lambda_update = torch.sum(lambda_update, 1, keepdim=True)
 
-            y_pred.backward(lambda_update)
+            # optimization is to maximize NDCG, lambda_update incidate how to maximize NDCG gain
+            y_pred.backward(-lambda_update)
 
-            count += 1
-            if count % 1000 == 0:
-                optimizer.step()
-                net.zero_grad()
+            # count += 1
+            # if count % 1000 == 0:
+            #    optimizer.step()
+            #    net.zero_grad()
 
         optimizer.step()
-        print("eval for epoch: {}".format(i))
-        eval_cross_entropy_loss(net, device, df_valid, valid_loader)
-        eval_ndcg_at_k(net, device, df_valid, valid_loader, 100000, [10, 30])
+        print(get_time(), "training dataset at epoch {}".format(i))
+        eval_cross_entropy_loss(net, device, df_train, train_loader)
+        if i % 5 == 0:
+            print(get_time(), "eval for epoch: {}".format(i))
+            # eval_ndcg_at_k(net, device, df_train, train_loader, 100000, [10, 30, 50])
+            eval_cross_entropy_loss(net, device, df_valid, valid_loader)
+            eval_ndcg_at_k(net, device, df_valid, valid_loader, 100000, [10, 30])
+        if i % 10 == 0 and i != start_epoch:
+            save_to_ckpt(ckptfile, i, net, optimizer, scheduler)
+
+    # save the last ckpt
+    save_to_ckpt(ckptfile, start_epoch + additional_epoch, net, optimizer, scheduler)
+
+    # save the final model
+    torch.save(net.state_dict(), ckptfile)
 
 
 if __name__ == "__main__":
     args = parse_args()
-    train(args.start_epoch, args.additional_epoch, args.lr, args.optim)
+    train(args.start_epoch, args.additional_epoch, args.lr, args.optim, args.ndcg_gain_in_train, args.small_dataset)

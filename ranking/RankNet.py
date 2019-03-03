@@ -26,6 +26,7 @@ from utils import (
     get_ckptdir,
     load_train_vali_data,
     parse_args,
+    save_to_ckpt,
 )
 
 
@@ -196,18 +197,6 @@ def eval_model(model, inference_model, loss_func, device, df_valid, valid_loader
 
         eval_cross_entropy_loss(inference_model, device, df_valid, valid_loader)
         eval_ndcg_at_k(inference_model, device, df_valid, valid_loader, batch_size, [10, 30])
-
-
-def save_to_ckpt(ckpt_file, epoch, model, optimizer, lr_scheduler):
-    ckpt_file = ckpt_file + '_{}'.format(epoch)
-    print(get_time(), 'save to ckpt {}'.format(ckpt_file))
-    torch.save({
-        'epoch': epoch,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'lr_scheduler': lr_scheduler.state_dict(),
-    }, ckpt_file)
-    print(get_time(), 'finish save to ckpt {}'.format(ckpt_file))
 
 
 def load_from_ckpt(ckpt_file, epoch, model):
