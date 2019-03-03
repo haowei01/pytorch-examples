@@ -1,6 +1,7 @@
 """
 Common function used in training Learn to Rank
 """
+from argparse import ArgumentParser
 from collections import defaultdict
 import os
 
@@ -78,3 +79,12 @@ def eval_ndcg_at_k(inference_model, device, df_valid, valid_loader, batch_size, 
 
     ndcg_result = ", ".join(["NDCG@{}: {:.5f}".format(k, np.mean(session_ndcgs[k])) for k in k_list])
     print(get_time(), "Eval Phase evaluate {}".format(ndcg_result))
+
+
+def parse_args():
+    parser = ArgumentParser(description="additional training specification")
+    parser.add_argument("--start_epoch", dest="start_epoch", type=int, default=0)
+    parser.add_argument("--additional_epoch", dest="additional_epoch", type=int, default=100)
+    parser.add_argument("--lr", dest="lr", type=float, default=0.0001)
+    parser.add_argument("--optim", dest="optim", type=str, default="adam", choices=["adam", "sgd"])
+    return parser.parse_args()

@@ -13,7 +13,6 @@ ListWise Rank
     and lambda is dL / dS_i
 4. in the back propagate send lambda backward to update w
 """
-import argparse
 
 import numpy as np
 import torch
@@ -26,6 +25,7 @@ from utils import (
     get_device,
     get_ckptdir,
     load_train_vali_data,
+    parse_args,
 )
 
 
@@ -70,7 +70,13 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001):
     data_fold = 'Fold1'
     train_loader, df_train, valid_loader, df_valid = load_train_vali_data(data_fold)
 
-    optimizer = torch.optim.Adam(net.parameters(), lr=float(lr))
+    if optim == "adam":
+        optimizer = torch.optim.Adam(net.parameters(), lr=lr)
+    elif optim == "sgd":
+        optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9)
+    else:
+        raise ValueError("Optimization method {} not implemented".format(optim))
+    print(optimizer)
 
     ideal_dcg = NDCG(2**9)
 
@@ -115,9 +121,5 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="additional training specification")
-    parser.add_argument("--start_epoch", dest="start_epoch", type=int, default=0)
-    parser.add_argument("--additional_epoch", dest="additional_epoch", type=int, default=100)
-    parser.add_argument("--lr", dest="lr", type=float, default=0.0001)
-    args = parser.parse_args()
-    train(args.start_epoch, args.additional_epoch, args.lr)
+    args = parse_args()
+    train(args.start_epoch, args.additional_epoch, args.lr, args.optim)
