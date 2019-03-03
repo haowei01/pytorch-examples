@@ -21,6 +21,7 @@ import torch.nn.functional as F
 
 from metrics import NDCG
 from utils import (
+    eval_cross_entropy_loss,
     eval_ndcg_at_k,
     get_device,
     get_ckptdir,
@@ -47,9 +48,9 @@ class LambdaRank(nn.Module):
             fc = getattr(self, 'fc' + str(i))
             input1 = F.relu(fc(input1))
 
-        # last layer is fully connected not using additional activation func
+        # last layer use Sigmoid Activation func
         fc = getattr(self, 'fc' + str(self.fc_layers))
-        return fc(input1)
+        return torch.sigmoid(fc(input1))
 
 
 #####################
@@ -87,11 +88,10 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001):
         count = 0
 
         for X, Y in train_loader.generate_batch_per_query(df_train):
-
-            N = 1.0 / ideal_dcg.maxDCG(Y)
-            if np.isnan(N):
+            if np.sum(Y) == 0:
                 # negative session, cannot learn useful signal
                 continue
+            N = 1.0 / ideal_dcg.maxDCG(Y)
 
             X_tensor = torch.Tensor(X).to(device)
             Y_tensor = torch.Tensor(Y).to(device).view(-1, 1)
@@ -111,12 +111,13 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001):
             y_pred.backward(lambda_update)
 
             count += 1
-            if count % 100 == 0:
+            if count % 1000 == 0:
                 optimizer.step()
                 net.zero_grad()
 
         optimizer.step()
-
+        print("eval for epoch: {}".format(i))
+        eval_cross_entropy_loss(net, device, df_valid, valid_loader)
         eval_ndcg_at_k(net, device, df_valid, valid_loader, 100000, [10, 30])
 
 

@@ -20,6 +20,7 @@ import torch.nn.functional as F
 
 from load_mslr import get_time
 from utils import (
+    eval_cross_entropy_loss,
     eval_ndcg_at_k,
     get_device,
     get_ckptdir,
@@ -193,6 +194,7 @@ def eval_model(model, inference_model, loss_func, device, df_valid, valid_loader
 
         print(get_time(), 'Eval Phase: loss : {}'.format(np.mean(lossed_minibatch)))
 
+        eval_cross_entropy_loss(inference_model, device, df_valid, valid_loader)
         eval_ndcg_at_k(inference_model, device, df_valid, valid_loader, batch_size, [10, 30])
 
 

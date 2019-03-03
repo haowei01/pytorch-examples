@@ -48,6 +48,43 @@ def load_train_vali_data(data_fold):
     return train_loader, df_train, valid_loader, df_valid
 
 
+def eval_cross_entropy_loss(inference_model, device, df_valid, valid_loader):
+    """
+    formula in https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/MSR-TR-2010-82.pdf
+
+    C = 0.5 * (1 - S_ij) * sigma * (si - sj) + log(1 + exp(-sigma * (si - sj)))
+    when S_ij = 1:  C = log(1 + exp(-sigma(si - sj)))
+    when S_ij = -1: C = log(1 + exp(-sigma(sj - si)))
+    """
+    print("Eval Phase evaluate pairwise cross entropy loss")
+    inference_model.eval()
+    with torch.no_grad():
+        total_cost = 0
+        total_pairs = 0
+
+        for X, Y in valid_loader.generate_batch_per_query(df_valid):
+            X_tensor = torch.Tensor(X).to(device)
+            Y_tensor = torch.Tensor(Y).to(device).view(-1, 1)
+            y_pred = inference_model(X_tensor)
+            y_pred_sigmoid = torch.sigmoid(y_pred)
+            C = torch.log(1 + torch.exp(-(y_pred_sigmoid - y_pred_sigmoid.t())))
+
+            rel_diff = Y_tensor - Y_tensor.t()
+            Sij = torch.zeros(rel_diff.shape).to(device).type(torch.float32)
+            pos_pairs = (rel_diff > 0).type(torch.float32)
+            neg_pairs = (rel_diff < 0).type(torch.float32)
+            Sij = Sij + pos_pairs - neg_pairs
+
+            C += 0.5 * (1 - Sij) * (y_pred_sigmoid - y_pred_sigmoid.t())
+            import ipdb; ipdb.set_trace()
+            cost = torch.sum(C, (0, 1), keepdim=True)
+            cost = cost.data.cpu().numpy()[0][0]
+            total_cost += cost
+            total_pairs += y_pred.shape[0] * y_pred.shape[0]
+
+        avg_cost = total_cost / total_pairs
+    print(get_time(), "Eval Phase pairwise corss entropy loss {:.6f}".format(avg_cost))
+
 def eval_ndcg_at_k(inference_model, device, df_valid, valid_loader, batch_size, k_list):
     print("Eval Phase evaluate NDCG @ {}".format(k_list))
     ndcg_metrics = {k: NDCG(k) for k in k_list}
