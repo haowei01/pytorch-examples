@@ -52,7 +52,8 @@ class LambdaRank(nn.Module):
 
         # last layer use Sigmoid Activation func
         fc = getattr(self, 'fc' + str(self.fc_layers))
-        return torch.sigmoid(fc(input1))
+        # return torch.sigmoid(fc(input1))
+        return fc(input1)
 
 
 #####################
@@ -83,13 +84,14 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam", ndcg_gai
 
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.85)
 
-    ideal_dcg = NDCG(2**9)
+    ideal_dcg = NDCG(2**9, ndcg_gain_in_train)
 
     for i in range(start_epoch, start_epoch + additional_epoch):
         scheduler.step()
         net.train()
         net.zero_grad()
         count = 0
+        batch_size = 100
 
         for X, Y in train_loader.generate_batch_per_query(df_train):
             if np.sum(Y) == 0:
@@ -115,23 +117,25 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam", ndcg_gai
 
                 decay_diff = 1.0 / torch.log2(rank_order + 1.0) - 1.0 / torch.log2(rank_order.t() + 1.0)
 
-                lambda_update = N * score_diff * gain_diff * decay_diff
+                lambda_update = N / score_diff * gain_diff * decay_diff
                 lambda_update = torch.sum(lambda_update, 1, keepdim=True)
 
+                assert lambda_update.shape == y_pred.shape
             # optimization is to maximize NDCG, lambda_update incidate how to maximize NDCG gain
-            y_pred.backward(-lambda_update)
+            y_pred.backward(-lambda_update / batch_size)
 
-            # count += 1
-            # if count % 1000 == 0:
-            #    optimizer.step()
-            #    net.zero_grad()
+            count += 1
+            if count % batch_size == 0:
+                optimizer.step()
+                net.zero_grad()
 
         optimizer.step()
         print(get_time(), "training dataset at epoch {}".format(i))
         eval_cross_entropy_loss(net, device, df_train, train_loader)
+        eval_ndcg_at_k(net, device, df_train, train_loader, 100000, [10, 30, 50])
+
         if i % 5 == 0:
             print(get_time(), "eval for epoch: {}".format(i))
-            # eval_ndcg_at_k(net, device, df_train, train_loader, 100000, [10, 30, 50])
             eval_cross_entropy_loss(net, device, df_valid, valid_loader)
             eval_ndcg_at_k(net, device, df_valid, valid_loader, 100000, [10, 30])
         if i % 10 == 0 and i != start_epoch:

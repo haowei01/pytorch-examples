@@ -72,7 +72,9 @@ class DataLoader:
         :returns: numpy.ndarray of x_i, y_i, x_j, y_j
         """
         x_i_buf, y_i_buf, x_j_buf, y_j_buf = None, None, None, None
-        for qid in df.qid.unique():
+        qids = df.qid.unique()
+        np.random.shuffle(qids)
+        for qid in qids:
             x_i, y_i, x_j, y_j = self.generate_query_pairs(df, qid)
             if x_i_buf is None:
                 x_i_buf, y_i_buf, x_j_buf, y_j_buf = x_i, y_i, x_j, y_j
@@ -112,7 +114,9 @@ class DataLoader:
         :return: X for features, y for relavance
         :rtype: numpy.ndarray, numpy.ndarray
         """
-        for qid in df.qid.unique():
+        qids = df.qid.unique()
+        np.random.shuffle(qids)
+        for qid in qids:
             df_qid = df[df.qid == qid]
             yield df_qid[['{}'.format(i) for i in range(1, self.num_features + 1)]].values, df_qid.rel.values
 

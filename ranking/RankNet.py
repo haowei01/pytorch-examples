@@ -74,7 +74,7 @@ class RankNetInference(RankNet):
 ##############
 # test RankNet
 ##############
-def train(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam"):
+def train(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam", small_dataset=False):
     print("start_epoch:{}, additional_epoch:{}, lr:{}".format(start_epoch, additional_epoch, lr))
     device = get_device()
 
@@ -109,7 +109,7 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam"):
         load_from_ckpt(ckptfile, start_epoch, net)
 
     data_fold = 'Fold1'
-    data_loader, df, valid_loader, df_valid = load_train_vali_data(data_fold)
+    data_loader, df, valid_loader, df_valid = load_train_vali_data(data_fold, small_dataset)
 
     batch_size = 100000
     losses = []
@@ -212,4 +212,4 @@ def load_from_ckpt(ckpt_file, epoch, model):
 
 if __name__ == "__main__":
     args = parse_args()
-    train(args.start_epoch, args.additional_epoch, args.lr, args.optim)
+    train(args.start_epoch, args.additional_epoch, args.lr, args.optim, args.small_dataset)
