@@ -26,6 +26,7 @@ from utils import (
     eval_ndcg_at_k,
     get_device,
     get_ckptdir,
+    init_weights,
     load_train_vali_data,
     parse_args,
     save_to_ckpt,
@@ -67,6 +68,7 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam", ndcg_gai
 
     net = LambdaRank(lambdarank_structure)
     net.to(device)
+    net.apply(init_weights)
     print(net)
 
     ckptfile = get_ckptdir('lambdarank', lambdarank_structure)
@@ -122,17 +124,19 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam", ndcg_gai
 
                 assert lambda_update.shape == y_pred.shape
             # optimization is to maximize NDCG, lambda_update incidate how to maximize NDCG gain
-            y_pred.backward(-lambda_update / batch_size)
+            y_pred.backward(-lambda_update)
+            optimizer.step()
+            net.zero_grad()
 
-            count += 1
-            if count % batch_size == 0:
-                optimizer.step()
-                net.zero_grad()
+            # count += 1
+            # if count % batch_size == 0:
+            #    optimizer.step()
+            #    net.zero_grad()
 
-        optimizer.step()
+        # optimizer.step()
         print(get_time(), "training dataset at epoch {}".format(i))
-        eval_cross_entropy_loss(net, device, df_train, train_loader)
-        eval_ndcg_at_k(net, device, df_train, train_loader, 100000, [10, 30, 50])
+        # eval_cross_entropy_loss(net, device, df_train, train_loader)
+        # eval_ndcg_at_k(net, device, df_train, train_loader, 100000, [10, 30, 50])
 
         if i % 5 == 0:
             print(get_time(), "eval for epoch: {}".format(i))

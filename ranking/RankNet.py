@@ -24,6 +24,7 @@ from utils import (
     eval_ndcg_at_k,
     get_device,
     get_ckptdir,
+    init_weights,
     load_train_vali_data,
     parse_args,
     save_to_ckpt,
@@ -71,6 +72,105 @@ class RankNetInference(RankNet):
         return torch.sigmoid(fc(input1))
 
 
+class RankNetListWise(RankNet):
+    def __init__(self, net_structures):
+        super(RankNetListWise, self).__init__(net_structures)
+
+    def forward(self, input1):
+        for i in range(1, self.fc_layers):
+            fc = getattr(self, 'fc' + str(i))
+            input1 = F.relu(fc(input1))
+
+        fc = getattr(self, 'fc' + str(self.fc_layers))
+        return fc(input1)
+
+##############
+# train RankNet ListWise
+##############
+def train_list_wise(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam", small_dataset=False):
+    print("start_epoch:{}, additional_epoch:{}, lr:{}".format(start_epoch, additional_epoch, lr))
+    device = get_device()
+
+    ranknet_structure = [136, 64, 16]
+
+    net = RankNetListWise(ranknet_structure)
+    net.to(device)
+    net.apply(init_weights)
+    print(net)
+
+    ckptfile = get_ckptdir('ranknet-listwise', ranknet_structure)
+
+    if optim == "adam":
+        optimizer = torch.optim.Adam(net.parameters(), lr=lr)
+    elif optim == "sgd":
+        optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9)
+    else:
+        raise ValueError("Optimization method {} not implemented".format(optim))
+    print(optimizer)
+
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
+
+    # try to load from the ckpt before start training
+    if start_epoch != 0:
+        load_from_ckpt(ckptfile, start_epoch, net)
+
+    data_fold = 'Fold1'
+    train_loader, df_train, valid_loader, df_valid = load_train_vali_data(data_fold, small_dataset)
+
+    batch_size = 100000
+    losses = []
+
+    for i in range(start_epoch, start_epoch + additional_epoch):
+
+        scheduler.step()
+        net.train()
+        net.zero_grad()
+        batch_size = 100
+        count = 0
+
+        for X, Y in train_loader.generate_batch_per_query(df_train):
+            if X is None or X.shape[0] == 0:
+                continue
+            X_tensor = torch.Tensor(X).to(device)
+            Y_tensor = torch.Tensor(Y).to(device).view(-1, 1)
+            y_pred = net(X_tensor)
+
+            with torch.no_grad():
+                rel_diff = Y_tensor - Y_tensor.t()
+                pos_pairs = (rel_diff > 0).type(torch.float32)
+                neg_pairs = (rel_diff < 0).type(torch.float32)
+                l = - (pos_pairs - neg_pairs) / (1 + torch.exp(y_pred - y_pred.t()))
+
+                back = torch.mean(l, dim=1, keepdim=True)
+                assert back.shape == y_pred.shape
+
+            y_pred.backward(back / batch_size)
+            count += 1
+            if count % batch_size == 0:
+                optimizer.step()
+                net.zero_grad()
+
+        optimizer.step()
+
+        print(get_time(), 'Training at Epoch{}, loss'.format(i))
+        eval_cross_entropy_loss(net, device, df_train, train_loader)
+
+        # save to checkpoint every 5 step, and run eval
+        if i % 5 == 0 and i != start_epoch:
+            save_to_ckpt(ckptfile, i, net, optimizer, scheduler)
+            net.eval()
+            eval_cross_entropy_loss(net, device, df_valid, valid_loader)
+            eval_ndcg_at_k(net, device, df_valid, valid_loader, 100000, [10, 30])
+        if i % 10 == 0 and i != start_epoch:
+            save_to_ckpt(ckptfile, i, net, optimizer, scheduler)
+
+    # save the last ckpt
+    save_to_ckpt(ckptfile, start_epoch + additional_epoch, net, optimizer, scheduler)
+
+    # save the final model
+    torch.save(net.state_dict(), ckptfile)
+
+
 ##############
 # test RankNet
 ##############
@@ -82,6 +182,7 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam", small_da
 
     net = RankNet(ranknet_structure)
     net.to(device)
+    net.apply(init_weights)
     print(net)
 
     net_inference = RankNetInference(ranknet_structure)
@@ -212,4 +313,4 @@ def load_from_ckpt(ckpt_file, epoch, model):
 
 if __name__ == "__main__":
     args = parse_args()
-    train(args.start_epoch, args.additional_epoch, args.lr, args.optim, args.small_dataset)
+    train_list_wise(args.start_epoch, args.additional_epoch, args.lr, args.optim, args.small_dataset)

@@ -8,6 +8,7 @@ import os
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn as nn
 
 from load_mslr import get_time, DataLoader
 from metrics import NDCG
@@ -63,6 +64,12 @@ def load_train_vali_data(data_fold, small_dataset=False):
     valid_loader = DataLoader(valid_data)
     df_valid = valid_loader.load()
     return train_loader, df_train, valid_loader, df_valid
+
+
+def init_weights(m):
+    if type(m) == nn.Linear:
+        nn.init.xavier_uniform_(m.weight)
+        m.bias.data.fill_(0.01)
 
 
 def eval_cross_entropy_loss(inference_model, device, df_valid, valid_loader, sigma=1.0):
