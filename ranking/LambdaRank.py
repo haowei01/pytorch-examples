@@ -88,6 +88,7 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam", ndcg_gai
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.75)
 
     ideal_dcg = NDCG(2**9, ndcg_gain_in_train)
+    num_sessions = train_loader.get_num_sessions()
 
     for i in range(start_epoch, start_epoch + additional_epoch):
         scheduler.step()
@@ -130,10 +131,10 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam", ndcg_gai
                     import ipdb; ipdb.set_trace()
 
             # optimization is to similar to RankNetListWise, but to maximize NDCG, lambda_update scales with gain and decay
-            y_pred.backward(lambda_update / batch_size)
+            y_pred.backward(lambda_update / num_sessions)
 
             count += 1
-            if count % batch_size == 0:
+            if False and count % batch_size == 0:
                 optimizer.step()
                 net.zero_grad()
 

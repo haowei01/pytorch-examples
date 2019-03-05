@@ -87,7 +87,7 @@ def eval_cross_entropy_loss(inference_model, device, df_valid, valid_loader, pha
     inference_model.eval()
     with torch.no_grad():
         total_cost = 0
-        total_pairs = 0
+        total_pairs = valid_loader.get_num_pairs()
 
         for X, Y in valid_loader.generate_batch_per_query(df_valid):
             X_tensor = torch.Tensor(X).to(device)
@@ -107,7 +107,6 @@ def eval_cross_entropy_loss(inference_model, device, df_valid, valid_loader, pha
             if cost == float('inf') or np.isnan(cost):
                 import ipdb; ipdb.set_trace()
             total_cost += cost
-            total_pairs += torch.sum(pos_pairs, (0, 1)).data.cpu() + torch.sum(neg_pairs, (0, 1)).data.cpu()
 
         avg_cost = total_cost / total_pairs
     print(get_time(), "{} Phase pairwise corss entropy loss {:.6f}, total_paris {}".format(phase, avg_cost, total_pairs))

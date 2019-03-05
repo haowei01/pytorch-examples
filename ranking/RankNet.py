@@ -121,7 +121,8 @@ def train_list_wise(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam"
 
     batch_size = 100000
     losses = []
-    total_pairs = None
+    total_pairs = train_loader.get_num_pairs()
+    print("In training total pairs are {}".format(total_pairs))
 
     for i in range(start_epoch, start_epoch + additional_epoch):
 
@@ -130,7 +131,6 @@ def train_list_wise(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam"
         net.zero_grad()
         batch_size = 100
         count = 0
-        total_pairs_in_batch = 0
 
         for X, Y in train_loader.generate_batch_per_query(df_train):
             if X is None or X.shape[0] == 0:
@@ -150,19 +150,13 @@ def train_list_wise(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam"
                 if torch.sum(back, dim=(0, 1)) == float('inf'):
                     import ipdb; ipdb.set_trace()
 
-                query_pairs = torch.sum(pos_pairs, (0, 1)) + torch.sum(neg_pairs, (0, 1))
-                total_pairs_in_batch += query_pairs
-
-            y_pred.backward(back)
+            y_pred.backward(back / total_pairs)
             count += 1
-            if count % batch_size == 0:
+            if False and count % batch_size == 0:
                 optimizer.step()
                 net.zero_grad()
 
         optimizer.step()
-        if not total_pairs:
-            total_pairs = total_pairs_in_batch
-            print("total pairs in batch: {}".format(total_pairs))
 
         print(get_time(), 'Training at Epoch{}, loss'.format(i))
         eval_cross_entropy_loss(net, device, df_train, train_loader, phase="Train")

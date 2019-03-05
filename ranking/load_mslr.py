@@ -18,18 +18,37 @@ class DataLoader:
         :param path: str
         """
         self.path = path
+        self.df = None
+        self.num_pairs = None
+        self.num_sessions = None
+
+    def get_num_pairs(self):
+        if self.num_pairs is not None:
+            return self.num_pairs
+        self.num_pairs = 0
+        for _, Y in self.generate_batch_per_query(self.df):
+            Y = Y.reshape(-1, 1)
+            pairs = Y - Y.T
+            pos_pairs = np.sum(pairs > 0, (0, 1))
+            neg_pairs = np.sum(pairs < 0, (0, 1))
+            assert pos_pairs == neg_pairs
+            self.num_pairs += pos_pairs + neg_pairs
+        return self.num_pairs
+
+    def get_num_sessions(self):
+        return self.num_sessions
 
     def _load_mslr(self):
         print(get_time(), "load file from {}".format(self.path))
         df = pd.read_csv(self.path, sep=" ", header=None)
         df.drop(columns=df.columns[-1], inplace=True)
         self.num_features = len(df.columns) - 2
+        self.num_paris = None
         print(get_time(), "finish loading from {}".format(self.path))
         print("dataframe shape: {}, features: {}".format(df.shape, self.num_features))
         return df
 
-    @staticmethod
-    def _parse_feature_and_label(df):
+    def _parse_feature_and_label(self, df):
         """
         :param df: pandas.DataFrame
         :return: pandas.DataFrame
@@ -44,6 +63,8 @@ class DataLoader:
             df[col] = df[col].astype(np.float32)
 
         print(get_time(), "finish parsing dataframe")
+        self.df = df
+        self.num_sessions = len(df.qid.unique())
         return df
 
     def generate_query_pairs(self, df, qid):
