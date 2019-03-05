@@ -73,8 +73,9 @@ class RankNetInference(RankNet):
 
 
 class RankNetListWise(RankNet):
-    def __init__(self, net_structures):
+    def __init__(self, net_structures, sigma):
         super(RankNetListWise, self).__init__(net_structures)
+        self.sigma = sigma
 
     def forward(self, input1):
         for i in range(1, self.fc_layers):
@@ -82,7 +83,7 @@ class RankNetListWise(RankNet):
             input1 = F.relu(fc(input1))
 
         fc = getattr(self, 'fc' + str(self.fc_layers))
-        return fc(input1)
+        return torch.sigmoid(fc(input1)) * self.sigma
 
 ##############
 # train RankNet ListWise
@@ -92,13 +93,14 @@ def train_list_wise(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam"
     device = get_device()
 
     ranknet_structure = [136, 64, 16]
+    sigma = 6.0
 
-    net = RankNetListWise(ranknet_structure)
+    net = RankNetListWise(ranknet_structure, sigma)
     net.to(device)
-    net.apply(init_weights)
+    # net.apply(init_weights)
     print(net)
 
-    ckptfile = get_ckptdir('ranknet-listwise', ranknet_structure)
+    ckptfile = get_ckptdir('ranknet-listwise', ranknet_structure, sigma)
 
     if optim == "adam":
         optimizer = torch.optim.Adam(net.parameters(), lr=lr)
@@ -108,7 +110,7 @@ def train_list_wise(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam"
         raise ValueError("Optimization method {} not implemented".format(optim))
     print(optimizer)
 
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.75)
 
     # try to load from the ckpt before start training
     if start_epoch != 0:
@@ -119,6 +121,7 @@ def train_list_wise(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam"
 
     batch_size = 100000
     losses = []
+    total_pairs = None
 
     for i in range(start_epoch, start_epoch + additional_epoch):
 
@@ -127,6 +130,7 @@ def train_list_wise(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam"
         net.zero_grad()
         batch_size = 100
         count = 0
+        total_pairs_in_batch = 0
 
         for X, Y in train_loader.generate_batch_per_query(df_train):
             if X is None or X.shape[0] == 0:
@@ -141,19 +145,27 @@ def train_list_wise(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam"
                 neg_pairs = (rel_diff < 0).type(torch.float32)
                 l = - (pos_pairs - neg_pairs) / (1 + torch.exp(y_pred - y_pred.t()))
 
-                back = torch.mean(l, dim=1, keepdim=True)
+                back = torch.sum(l, dim=1, keepdim=True)
                 assert back.shape == y_pred.shape
+                if torch.sum(back, dim=(0, 1)) == float('inf'):
+                    import ipdb; ipdb.set_trace()
 
-            y_pred.backward(back / batch_size)
+                query_pairs = torch.sum(pos_pairs, (0, 1)) + torch.sum(neg_pairs, (0, 1))
+                total_pairs_in_batch += query_pairs
+
+            y_pred.backward(back)
             count += 1
             if count % batch_size == 0:
                 optimizer.step()
                 net.zero_grad()
 
         optimizer.step()
+        if not total_pairs:
+            total_pairs = total_pairs_in_batch
+            print("total pairs in batch: {}".format(total_pairs))
 
         print(get_time(), 'Training at Epoch{}, loss'.format(i))
-        eval_cross_entropy_loss(net, device, df_train, train_loader)
+        eval_cross_entropy_loss(net, device, df_train, train_loader, phase="Train")
 
         # save to checkpoint every 5 step, and run eval
         if i % 5 == 0 and i != start_epoch:

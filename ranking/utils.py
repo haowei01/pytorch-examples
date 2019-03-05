@@ -23,8 +23,10 @@ def get_device():
     return device
 
 
-def get_ckptdir(net_name, net_structure):
+def get_ckptdir(net_name, net_structure, sigma=None):
     net_name = '{}-{}'.format(net_name, '-'.join([str(x) for x in net_structure]))
+    if sigma:
+        net_name += '-scale-{}'.format(sigma)
     ckptdir = os.path.join(os.path.dirname(__file__), 'ckptdir')
     if not os.path.exists(ckptdir):
         os.makedirs(ckptdir)
@@ -69,10 +71,10 @@ def load_train_vali_data(data_fold, small_dataset=False):
 def init_weights(m):
     if type(m) == nn.Linear:
         nn.init.xavier_uniform_(m.weight)
-        m.bias.data.fill_(0.01)
+        m.bias.data.fill_(0.00)
 
 
-def eval_cross_entropy_loss(inference_model, device, df_valid, valid_loader, sigma=1.0):
+def eval_cross_entropy_loss(inference_model, device, df_valid, valid_loader, phase="Eval", sigma=1.0):
     """
     formula in https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/MSR-TR-2010-82.pdf
 
@@ -91,25 +93,26 @@ def eval_cross_entropy_loss(inference_model, device, df_valid, valid_loader, sig
             X_tensor = torch.Tensor(X).to(device)
             Y_tensor = torch.Tensor(Y).to(device).view(-1, 1)
             y_pred = inference_model(X_tensor)
-            y_pred_sigmoid = torch.sigmoid(y_pred)
-            C = torch.log(1 + torch.exp(-sigma * (y_pred_sigmoid - y_pred_sigmoid.t())))
+
+            C_pos = torch.log(1 + torch.exp(-sigma * (y_pred - y_pred.t())))
+            C_neg = torch.log(1 + torch.exp(sigma * (y_pred - y_pred.t())))
 
             rel_diff = Y_tensor - Y_tensor.t()
-            Sij = torch.zeros(rel_diff.shape).to(device).type(torch.float32)
             pos_pairs = (rel_diff > 0).type(torch.float32)
             neg_pairs = (rel_diff < 0).type(torch.float32)
-            Sij = Sij + pos_pairs - neg_pairs
 
-            C += 0.5 * (1 - Sij) * sigma * (y_pred_sigmoid - y_pred_sigmoid.t())
+            C = pos_pairs * C_pos + neg_pairs * C_neg
             cost = torch.sum(C, (0, 1), keepdim=True)
             cost = cost.data.cpu().numpy()[0][0]
+            if cost == float('inf') or np.isnan(cost):
+                import ipdb; ipdb.set_trace()
             total_cost += cost
-            total_pairs += y_pred.shape[0] * y_pred.shape[0]
+            total_pairs += torch.sum(pos_pairs, (0, 1)).data.cpu() + torch.sum(neg_pairs, (0, 1)).data.cpu()
 
         avg_cost = total_cost / total_pairs
-    print(get_time(), "Eval Phase pairwise corss entropy loss {:.6f}".format(avg_cost))
+    print(get_time(), "{} Phase pairwise corss entropy loss {:.6f}, total_paris {}".format(phase, avg_cost, total_pairs))
 
-def eval_ndcg_at_k(inference_model, device, df_valid, valid_loader, batch_size, k_list):
+def eval_ndcg_at_k(inference_model, device, df_valid, valid_loader, batch_size, k_list, phase="Eval"):
     # print("Eval Phase evaluate NDCG @ {}".format(k_list))
     ndcg_metrics = {k: NDCG(k) for k in k_list}
     qids, rels, scores = [], [], []
@@ -139,7 +142,7 @@ def eval_ndcg_at_k(inference_model, device, df_valid, valid_loader, batch_size, 
                 session_ndcgs[k].append(ndcg_k)
 
     ndcg_result = ", ".join(["NDCG@{}: {:.5f}".format(k, np.mean(session_ndcgs[k])) for k in k_list])
-    print(get_time(), "Eval Phase evaluate {}".format(ndcg_result))
+    print(get_time(), "{} Phase evaluate {}".format(phase, ndcg_result))
 
 
 def str2bool(v):

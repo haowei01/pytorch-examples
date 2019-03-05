@@ -34,7 +34,7 @@ from utils import (
 
 
 class LambdaRank(nn.Module):
-    def __init__(self, net_structures):
+    def __init__(self, net_structures, sigma=1.0):
         """Fully Connected Layers with Sigmoid activation at the last layer
 
         :param net_structures: list of int for LambdaRank FC width
@@ -44,6 +44,7 @@ class LambdaRank(nn.Module):
         for i in range(len(net_structures) - 1):
             setattr(self, 'fc' + str(i + 1), nn.Linear(net_structures[i], net_structures[i+1]))
         setattr(self, 'fc' + str(len(net_structures)), nn.Linear(net_structures[-1], 1))
+        self.sigma = sigma
 
     def forward(self, input1):
         # from 1 to N - 1 layer, use ReLU as activation function
@@ -51,10 +52,10 @@ class LambdaRank(nn.Module):
             fc = getattr(self, 'fc' + str(i))
             input1 = F.relu(fc(input1))
 
-        # last layer use Sigmoid Activation func
+        # last layer use Sigmoid/tanh Activation func
         fc = getattr(self, 'fc' + str(self.fc_layers))
         # return torch.sigmoid(fc(input1))
-        return fc(input1)
+        return torch.sigmoid(fc(input1)) * self.sigma
 
 
 #####################
@@ -66,12 +67,12 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam", ndcg_gai
 
     lambdarank_structure = [136, 64, 16]
 
-    net = LambdaRank(lambdarank_structure)
+    net = LambdaRank(lambdarank_structure, 6.0)
     net.to(device)
     net.apply(init_weights)
     print(net)
 
-    ckptfile = get_ckptdir('lambdarank', lambdarank_structure)
+    ckptfile = get_ckptdir('lambdarank', lambdarank_structure, 6.0)
 
     data_fold = 'Fold1'
     train_loader, df_train, valid_loader, df_valid = load_train_vali_data(data_fold, small_dataset)
@@ -84,7 +85,7 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam", ndcg_gai
         raise ValueError("Optimization method {} not implemented".format(optim))
     print(optimizer)
 
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.85)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.75)
 
     ideal_dcg = NDCG(2**9, ndcg_gain_in_train)
 
@@ -94,6 +95,7 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam", ndcg_gai
         net.zero_grad()
         count = 0
         batch_size = 100
+        sigma = 1.0
 
         for X, Y in train_loader.generate_batch_per_query(df_train):
             if np.sum(Y) == 0:
@@ -109,7 +111,7 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam", ndcg_gai
             with torch.no_grad():
                 rank_order = torch.argsort(y_pred, dim=0, descending=True).type(torch.float) + 1.0
 
-                score_diff = 1.0 + torch.exp(y_pred - y_pred.t())
+                score_diff = 1.0 + torch.exp(sigma * (y_pred - y_pred.t()))
                 if ndcg_gain_in_train == "exp2":
                     gain_diff = torch.pow(2.0, Y_tensor - Y_tensor.t())
                 elif ndcg_gain_in_train == "identity":
@@ -119,23 +121,25 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam", ndcg_gai
 
                 decay_diff = 1.0 / torch.log2(rank_order + 1.0) - 1.0 / torch.log2(rank_order.t() + 1.0)
 
-                lambda_update = N / score_diff * gain_diff * decay_diff
+                lambda_update = - N / score_diff * gain_diff * decay_diff
                 lambda_update = torch.sum(lambda_update, 1, keepdim=True)
 
                 assert lambda_update.shape == y_pred.shape
-            # optimization is to maximize NDCG, lambda_update incidate how to maximize NDCG gain
-            y_pred.backward(-lambda_update)
-            optimizer.step()
-            net.zero_grad()
+                y_lambda_update_copy = lambda_update.clone()
+                if np.sum(y_lambda_update_copy.data.cpu().numpy(), (0, 1)) == float('inf'):
+                    import ipdb; ipdb.set_trace()
 
-            # count += 1
-            # if count % batch_size == 0:
-            #    optimizer.step()
-            #    net.zero_grad()
+            # optimization is to similar to RankNetListWise, but to maximize NDCG, lambda_update scales with gain and decay
+            y_pred.backward(lambda_update / batch_size)
 
-        # optimizer.step()
-        print(get_time(), "training dataset at epoch {}".format(i))
-        # eval_cross_entropy_loss(net, device, df_train, train_loader)
+            count += 1
+            if count % batch_size == 0:
+                optimizer.step()
+                net.zero_grad()
+
+        optimizer.step()
+        print(get_time(), "training dataset at epoch {}, total queries: {}".format(i, count))
+        eval_cross_entropy_loss(net, device, df_train, train_loader)
         # eval_ndcg_at_k(net, device, df_train, train_loader, 100000, [10, 30, 50])
 
         if i % 5 == 0:
