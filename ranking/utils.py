@@ -74,7 +74,7 @@ def init_weights(m):
         m.bias.data.fill_(0.00)
 
 
-def eval_cross_entropy_loss(inference_model, device, df_valid, valid_loader, phase="Eval", sigma=1.0):
+def eval_cross_entropy_loss(model, device, loader, phase="Eval", sigma=1.0):
     """
     formula in https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/MSR-TR-2010-82.pdf
 
@@ -84,15 +84,15 @@ def eval_cross_entropy_loss(inference_model, device, df_valid, valid_loader, pha
     sigma can change the shape of the curve
     """
     # print("Eval Phase evaluate pairwise cross entropy loss")
-    inference_model.eval()
-    with torch.no_grad():
+    # model.eval()
+    with torch.set_grad_enabled(True):
         total_cost = 0
-        total_pairs = valid_loader.get_num_pairs()
+        total_pairs = loader.get_num_pairs()
 
-        for X, Y in valid_loader.generate_batch_per_query(df_valid):
+        for X, Y in loader.generate_batch_per_query(loader.df):
             X_tensor = torch.Tensor(X).to(device)
             Y_tensor = torch.Tensor(Y).to(device).view(-1, 1)
-            y_pred = inference_model(X_tensor)
+            y_pred = model(X_tensor)
 
             C_pos = torch.log(1 + torch.exp(-sigma * (y_pred - y_pred.t())))
             C_neg = torch.log(1 + torch.exp(sigma * (y_pred - y_pred.t())))
@@ -102,14 +102,13 @@ def eval_cross_entropy_loss(inference_model, device, df_valid, valid_loader, pha
             neg_pairs = (rel_diff < 0).type(torch.float32)
 
             C = pos_pairs * C_pos + neg_pairs * C_neg
-            cost = torch.sum(C, (0, 1), keepdim=True)
-            cost = cost.data.cpu().numpy()[0][0]
-            if cost == float('inf') or np.isnan(cost):
+            cost = torch.sum(C, (0, 1))
+            if cost.item() == float('inf'):
                 import ipdb; ipdb.set_trace()
             total_cost += cost
 
         avg_cost = total_cost / total_pairs
-    print(get_time(), "{} Phase pairwise corss entropy loss {:.6f}, total_paris {}".format(phase, avg_cost, total_pairs))
+    print(get_time(), "{} Phase pairwise corss entropy loss {:.6f}, total_paris {}".format(phase, avg_cost.item(), total_pairs))
 
 def eval_ndcg_at_k(inference_model, device, df_valid, valid_loader, batch_size, k_list, phase="Eval"):
     # print("Eval Phase evaluate NDCG @ {}".format(k_list))

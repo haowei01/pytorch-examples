@@ -3,6 +3,8 @@ Microsoft Learning to Rank Dataset:
 https://www.microsoft.com/en-us/research/project/mslr/
 """
 import datetime
+import os
+
 import pandas as pd
 import numpy as np
 
@@ -18,6 +20,7 @@ class DataLoader:
         :param path: str
         """
         self.path = path
+        self.pickle_path = path[:-3] + 'pkl'
         self.df = None
         self.num_pairs = None
         self.num_sessions = None
@@ -145,4 +148,12 @@ class DataLoader:
         """
         :return: pandas.DataFrame
         """
-        return self._parse_feature_and_label(self._load_mslr())
+        if os.path.isfile(self.pickle_path):
+            self.df = pd.read_pickle(self.pickle_path)
+            self.num_features = len(self.df.columns) - 2
+            self.num_paris = None
+            self.num_sessions = len(self.df.qid.unique())
+        else:
+            self.df = self._parse_feature_and_label(self._load_mslr())
+            self.df.to_pickle(self.pickle_path)
+        return self.df

@@ -105,7 +105,7 @@ def train_list_wise(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam"
     if optim == "adam":
         optimizer = torch.optim.Adam(net.parameters(), lr=lr)
     elif optim == "sgd":
-        optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9)
+        optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.5)
     else:
         raise ValueError("Optimization method {} not implemented".format(optim))
     print(optimizer)
@@ -132,6 +132,8 @@ def train_list_wise(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam"
         batch_size = 100
         count = 0
 
+        loss = 0
+
         for X, Y in train_loader.generate_batch_per_query(df_train):
             if X is None or X.shape[0] == 0:
                 continue
@@ -139,33 +141,46 @@ def train_list_wise(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam"
             Y_tensor = torch.Tensor(Y).to(device).view(-1, 1)
             y_pred = net(X_tensor)
 
-            with torch.no_grad():
-                rel_diff = Y_tensor - Y_tensor.t()
-                pos_pairs = (rel_diff > 0).type(torch.float32)
-                neg_pairs = (rel_diff < 0).type(torch.float32)
-                l = - (pos_pairs - neg_pairs) / (1 + torch.exp(y_pred - y_pred.t()))
+            # with torch.no_grad():
+            #     rel_diff = Y_tensor - Y_tensor.t()
+            #     pos_pairs = (rel_diff > 0).type(torch.float32)
+            #     neg_pairs = (rel_diff < 0).type(torch.float32)
+            #     l = - (pos_pairs - neg_pairs) / (1 + torch.exp(y_pred - y_pred.t()))
 
-                back = torch.sum(l, dim=1, keepdim=True)
-                assert back.shape == y_pred.shape
-                if torch.sum(back, dim=(0, 1)) == float('inf'):
-                    import ipdb; ipdb.set_trace()
+            #     back = torch.sum(l, dim=1, keepdim=True)
+            #     assert back.shape == y_pred.shape
+            #     if torch.sum(back, dim=(0, 1)) == float('inf'):
+            #         import ipdb; ipdb.set_trace()
 
-            y_pred.backward(back / total_pairs)
+            # y_pred.backward(back / total_pairs)
+
+            C_pos = torch.log(1 + torch.exp(-sigma * (y_pred - y_pred.t())))
+            C_neg = torch.log(1 + torch.exp(sigma * (y_pred - y_pred.t())))
+
+            rel_diff = Y_tensor - Y_tensor.t()
+            pos_pairs = (rel_diff > 0).type(torch.float32)
+            neg_pairs = (rel_diff < 0).type(torch.float32)
+
+            C = pos_pairs * C_pos + neg_pairs * C_neg
+            loss += torch.sum(C, (0, 1))
+
             count += 1
             if False and count % batch_size == 0:
                 optimizer.step()
                 net.zero_grad()
-
+        loss /= total_pairs
+        loss.backward()
         optimizer.step()
+        net.zero_grad()
 
-        print(get_time(), 'Training at Epoch{}, loss'.format(i))
-        eval_cross_entropy_loss(net, device, df_train, train_loader, phase="Train")
+        print(get_time(), 'Training at Epoch{}, loss, {}'.format(i, loss))
+        eval_cross_entropy_loss(net, device, train_loader, phase="Train")
 
         # save to checkpoint every 5 step, and run eval
         if i % 5 == 0 and i != start_epoch:
             save_to_ckpt(ckptfile, i, net, optimizer, scheduler)
-            net.eval()
-            eval_cross_entropy_loss(net, device, df_valid, valid_loader)
+            # net.eval()
+            eval_cross_entropy_loss(net, device, valid_loader)
             eval_ndcg_at_k(net, device, df_valid, valid_loader, 100000, [10, 30])
         if i % 10 == 0 and i != start_epoch:
             save_to_ckpt(ckptfile, i, net, optimizer, scheduler)
@@ -302,7 +317,7 @@ def eval_model(model, inference_model, loss_func, device, df_valid, valid_loader
 
         print(get_time(), 'Eval Phase: loss : {}'.format(np.mean(lossed_minibatch)))
 
-        eval_cross_entropy_loss(inference_model, device, df_valid, valid_loader)
+        eval_cross_entropy_loss(inference_model, device, valid_loader)
         eval_ndcg_at_k(inference_model, device, df_valid, valid_loader, batch_size, [10, 30])
 
 
