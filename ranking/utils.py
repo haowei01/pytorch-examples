@@ -83,23 +83,24 @@ def eval_cross_entropy_loss(model, device, loader, phase="Eval", sigma=1.0):
     when S_ij = -1: C = log(1 + exp(-sigma(sj - si)))
     sigma can change the shape of the curve
     """
-    # print("Eval Phase evaluate pairwise cross entropy loss")
-    # model.eval()
-    with torch.set_grad_enabled(True):
+    print(get_time(), "{} Phase evaluate pairwise cross entropy loss".format(phase))
+    model.eval()
+    with torch.set_grad_enabled(False):
         total_cost = 0
         total_pairs = loader.get_num_pairs()
 
         for X, Y in loader.generate_batch_per_query(loader.df):
-            X_tensor = torch.Tensor(X).to(device)
             Y_tensor = torch.Tensor(Y).to(device).view(-1, 1)
-            y_pred = model(X_tensor)
-
-            C_pos = torch.log(1 + torch.exp(-sigma * (y_pred - y_pred.t())))
-            C_neg = torch.log(1 + torch.exp(sigma * (y_pred - y_pred.t())))
-
             rel_diff = Y_tensor - Y_tensor.t()
             pos_pairs = (rel_diff > 0).type(torch.float32)
             neg_pairs = (rel_diff < 0).type(torch.float32)
+            if not torch.sum(pos_pairs, (0, 1)):
+                continue
+
+            X_tensor = torch.Tensor(X).to(device)
+            y_pred = model(X_tensor)
+            C_pos = torch.log(1 + torch.exp(-sigma * (y_pred - y_pred.t())))
+            C_neg = torch.log(1 + torch.exp(sigma * (y_pred - y_pred.t())))
 
             C = pos_pairs * C_pos + neg_pairs * C_neg
             cost = torch.sum(C, (0, 1))
@@ -108,7 +109,11 @@ def eval_cross_entropy_loss(model, device, loader, phase="Eval", sigma=1.0):
             total_cost += cost
 
         avg_cost = total_cost / total_pairs
-    print(get_time(), "{} Phase pairwise corss entropy loss {:.6f}, total_paris {}".format(phase, avg_cost.item(), total_pairs))
+    print(
+        get_time(),
+        "{} Phase pairwise corss entropy loss {:.6f}, total_paris {}".format(
+            phase, avg_cost.item(), total_pairs
+        ))
 
 
 def eval_ndcg_at_k(inference_model, device, df_valid, valid_loader, batch_size, k_list, phase="Eval"):
@@ -166,4 +171,5 @@ def parse_args():
     parser.add_argument("--small_dataset", type=str2bool, nargs='?', const=True, default=False)
     parser.add_argument("--debug", type=str2bool, nargs='?', const=True, default=False)
     parser.add_argument("--double_precision", type=str2bool, nargs="?", const=True, default=False)
+    parser.add_argument("--standardize", type=str2bool, nargs="?", const=True, default=False)
     return parser.parse_args()

@@ -7,6 +7,13 @@ Some implementations of Deep Learning algorithms in PyTorch.
 * RankNet
 Feed forward NN, minimize document pairwise cross entropy loss function
 
+to train the model
+```
+python ranking/RankNet.py --lr 0.001 --debug --standardize
+```
+`--debug` print the parameter norm and parameter grad norm. This enable to evaluate whether there is gradient vanishing and gradient exploding problem
+`--standardize` makes sure input are scaled to have 0 as mean and 1.0 as standard deviation
+
 * LambdaRank
 Feed forward NN. Gradient is proportional to NDCG change of swapping two pairs of document
 

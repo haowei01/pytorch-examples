@@ -110,6 +110,7 @@ class RankNetListWise(RankNet):
     def __init__(self, net_structures, sigma, double_precision=False):
         super(RankNetListWise, self).__init__(net_structures, double_precision)
         self.sigma = sigma
+        self.activation = nn.ReLU6()
 
     def forward(self, input1):
         for i in range(1, self.fc_layers):
@@ -117,14 +118,16 @@ class RankNetListWise(RankNet):
             input1 = F.relu(fc(input1))
 
         fc = getattr(self, 'fc' + str(self.fc_layers))
-        return fc(input1)
+        return self.activation(fc(input1))
 
 
 ##############
 # train RankNet ListWise
 ##############
 def train_list_wise(
-    start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam", double_precision=False, small_dataset=False, debug=False
+    start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam",
+    double_precision=False, standardize=False,
+    small_dataset=False, debug=False
 ):
     print("start_epoch:{}, additional_epoch:{}, lr:{}".format(start_epoch, additional_epoch, lr))
     precision = torch.float64 if double_precision else torch.float32
@@ -156,6 +159,9 @@ def train_list_wise(
 
     data_fold = 'Fold1'
     train_loader, df_train, valid_loader, df_valid = load_train_vali_data(data_fold, small_dataset)
+    if standardize:
+        df_train, scaler = train_loader.train_scaler_and_transform()
+        df_valid = valid_loader.apply_scaler(scaler)
 
     batch_size = 100000
     losses = []
@@ -167,7 +173,7 @@ def train_list_wise(
         scheduler.step()
         net.train()
         net.zero_grad()
-        batch_size = 10
+        batch_size = 100
         count = 0
         loss = 0
         pairs = 0
@@ -175,8 +181,17 @@ def train_list_wise(
         for X, Y in train_loader.generate_batch_per_query(df_train):
             if X is None or X.shape[0] == 0:
                 continue
-            X_tensor = torch.tensor(X, dtype=precision, device=device)
             Y_tensor = torch.tensor(Y, dtype=precision, device=device).view(-1, 1)
+            rel_diff = Y_tensor - Y_tensor.t()
+            pos_pairs = (rel_diff > 0).type(precision)
+            neg_pairs = (rel_diff < 0).type(precision)
+
+            num_pairs = torch.sum(pos_pairs, (0, 1)) + torch.sum(neg_pairs, (0, 1))
+            if num_pairs == 0:
+                # no relavent pairs, can not learn, skip the prediction
+                continue
+
+            X_tensor = torch.tensor(X, dtype=precision, device=device)
             y_pred = net(X_tensor)
 
             # with torch.no_grad():
@@ -195,20 +210,16 @@ def train_list_wise(
             C_pos = torch.log(1 + torch.exp(-sigma * (y_pred - y_pred.t())))
             C_neg = torch.log(1 + torch.exp(sigma * (y_pred - y_pred.t())))
 
-            rel_diff = Y_tensor - Y_tensor.t()
-            pos_pairs = (rel_diff > 0).type(precision)
-            neg_pairs = (rel_diff < 0).type(precision)
-
             C = pos_pairs * C_pos + neg_pairs * C_neg
             loss += torch.sum(C, (0, 1))
-            pairs += torch.sum(pos_pairs, (0, 1)) + torch.sum(neg_pairs, (0, 1))
+            pairs += num_pairs
             count += 1
             if count % batch_size == 0:
                 loss /= pairs
                 print("pairs {}, number of loss {}".format(pairs, loss.item()))
                 loss.backward()
-                # if debug:
-                #    net.dump_param()
+                if count % (4 * batch_size) and debug:
+                    net.dump_param()
                 optimizer.step()
                 net.zero_grad()
                 pairs = 0
@@ -222,7 +233,7 @@ def train_list_wise(
                 net.dump_param()
             optimizer.step()
 
-        print('-' * 20 + '\n', get_time(), 'Training at Epoch{}, loss, {}'.format(i, loss), '\n' + '-' * 20)
+        print('=' * 40 + '\n', get_time(), 'Training at Epoch{}, loss, {}'.format(i, loss), '\n' + '=' * 40)
         eval_cross_entropy_loss(net, device, train_loader, phase="Train")
 
         # save to checkpoint every 5 step, and run eval
@@ -392,6 +403,6 @@ if __name__ == "__main__":
     args = parse_args()
     train_list_wise(
         args.start_epoch, args.additional_epoch, args.lr, args.optim,
-        args.double_precision,
+        args.double_precision, args.standardize,
         args.small_dataset, args.debug,
     )

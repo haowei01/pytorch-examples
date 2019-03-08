@@ -7,6 +7,7 @@ import os
 
 import pandas as pd
 import numpy as np
+from sklearn import preprocessing
 
 
 def get_time():
@@ -149,6 +150,7 @@ class DataLoader:
         :return: pandas.DataFrame
         """
         if os.path.isfile(self.pickle_path):
+            print(get_time(), "load from pickle file {}".format(self.pickle_path))
             self.df = pd.read_pickle(self.pickle_path)
             self.num_features = len(self.df.columns) - 2
             self.num_paris = None
@@ -157,3 +159,19 @@ class DataLoader:
             self.df = self._parse_feature_and_label(self._load_mslr())
             self.df.to_pickle(self.pickle_path)
         return self.df
+
+    def train_scaler_and_transform(self):
+        """Learn a scalar and apply transform."""
+        feature_columns = [str(i) for i in range(1, self.num_features + 1)]
+        X_train = self.df[feature_columns]
+        scaler = preprocessing.StandardScaler().fit(X_train)
+        self.df[feature_columns] = scaler.transform(X_train)
+        return self.df, scaler
+
+    def apply_scaler(self, scaler):
+        print(get_time(), "apply scaler to transform feature for {}".format(self.path))
+        feature_columns = [str(i) for i in range(1, self.num_features + 1)]
+        X_train = self.df[feature_columns]
+        self.df[feature_columns] = scaler.transform(X_train)
+        return self.df
+
