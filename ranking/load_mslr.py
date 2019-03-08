@@ -91,11 +91,13 @@ class DataLoader:
             x_j.append(df_merged[['{}_y'.format(i) for i in range(1, self.num_features + 1)]].values)
         return np.vstack(x_i), np.vstack(y_i), np.vstack(x_j), np.vstack(y_j)
 
-    def generate_query_pair_batch(self, df, batchsize=2000):
+    def generate_query_pair_batch(self, df=None, batchsize=2000):
         """
         :param df: pandas.DataFrame, contains column qid
         :returns: numpy.ndarray of x_i, y_i, x_j, y_j
         """
+        if df is None:
+            df = self.df
         x_i_buf, y_i_buf, x_j_buf, y_j_buf = None, None, None, None
         qids = df.qid.unique()
         np.random.shuffle(qids)
@@ -133,12 +135,14 @@ class DataLoader:
             yield r.qid.values, r.rel.values, r[['{}'.format(i) for i in range(1, self.num_features + 1)]].values
             idx += 1
 
-    def generate_batch_per_query(self, df):
+    def generate_batch_per_query(self, df=None):
         """
         :param df: pandas.DataFrame
         :return: X for features, y for relavance
         :rtype: numpy.ndarray, numpy.ndarray
         """
+        if df is None:
+            df = self.df
         qids = df.qid.unique()
         np.random.shuffle(qids)
         for qid in qids:
@@ -174,4 +178,3 @@ class DataLoader:
         X_train = self.df[feature_columns]
         self.df[feature_columns] = scaler.transform(X_train)
         return self.df
-

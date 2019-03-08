@@ -158,7 +158,10 @@ def str2bool(v):
         raise ArgumentTypeError('Boolean value expected.')
 
 
-def parse_args():
+def get_args_parser():
+    """Common Args needed for different Learn to Rank training method.
+    :rtype: ArgumentParser
+    """
     parser = ArgumentParser(description="additional training specification")
     parser.add_argument("--start_epoch", dest="start_epoch", type=int, default=0)
     parser.add_argument("--additional_epoch", dest="additional_epoch", type=int, default=100)
@@ -172,4 +175,4 @@ def parse_args():
     parser.add_argument("--debug", type=str2bool, nargs='?', const=True, default=False)
     parser.add_argument("--double_precision", type=str2bool, nargs="?", const=True, default=False)
     parser.add_argument("--standardize", type=str2bool, nargs="?", const=True, default=False)
-    return parser.parse_args()
+    return parser

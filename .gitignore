@@ -4,5 +4,7 @@
 *.pyc
 *.swp
 
+venv/*
+
 ranking/data/mslr-*
 ranking/ckptdir/

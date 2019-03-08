@@ -28,7 +28,7 @@ from utils import (
     get_ckptdir,
     init_weights,
     load_train_vali_data,
-    parse_args,
+    get_args_parser,
     save_to_ckpt,
 )
 
@@ -158,5 +158,6 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam", ndcg_gai
 
 
 if __name__ == "__main__":
-    args = parse_args()
+    parser = get_args_parser()
+    args = parser.parse_args()
     train(args.start_epoch, args.additional_epoch, args.lr, args.optim, args.ndcg_gain_in_train, args.small_dataset)
