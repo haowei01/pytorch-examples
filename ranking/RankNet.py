@@ -32,15 +32,22 @@ from utils import (
 
 
 class RankNet(nn.Module):
-    def __init__(self, net_structures):
+    def __init__(self, net_structures, double_precision=False):
         """
         :param net_structures: list of int for RankNet FC width
         """
         super(RankNet, self).__init__()
         self.fc_layers = len(net_structures)
         for i in range(len(net_structures) - 1):
-            setattr(self, 'fc' + str(i + 1), nn.Linear(net_structures[i], net_structures[i+1]))
-        setattr(self, 'fc' + str(len(net_structures)), nn.Linear(net_structures[-1], 1))
+            layer = nn.Linear(net_structures[i], net_structures[i+1])
+            if double_precision:
+                layer = layer.double()
+            setattr(self, 'fc' + str(i + 1), layer)
+
+        last_layer = nn.Linear(net_structures[-1], 1)
+        if double_precision:
+            last_layer = last_layer.double()
+        setattr(self, 'fc' + str(len(net_structures)), last_layer)
 
     def forward(self, input1, input2):
         # from 1 to N - 1 layer, use ReLU as activation function
@@ -51,11 +58,38 @@ class RankNet(nn.Module):
 
         # last layer use Sigmoid Activation Function
         fc = getattr(self, 'fc' + str(self.fc_layers))
-        input1 = torch.sigmoid(fc(input1))
-        input2 = torch.sigmoid(fc(input2))
+        # input1 = torch.sigmoid(fc(input1))
+        # input2 = torch.sigmoid(fc(input2))
+        input1 = fc(input1)
+        input2 = fc(input2)
 
         # normalize input1 - input2 with a sigmoid func
         return torch.sigmoid(input1 - input2)
+
+    def dump_param(self):
+        for i in range(1, self.fc_layers + 1):
+            print("fc{} layers".format(i))
+            fc = getattr(self, 'fc' + str(i))
+
+            with torch.no_grad():
+                weight_norm, weight_grad_norm = torch.norm(fc.weight).item(), torch.norm(fc.weight.grad).item()
+                bias_norm, bias_grad_norm = torch.norm(fc.bias).item(), torch.norm(fc.bias.grad).item()
+            try:
+                weight_ratio = weight_grad_norm / weight_norm if weight_norm else float('inf') if weight_grad_norm else 0.0
+                bias_ratio = bias_grad_norm / bias_norm if bias_norm else float('inf') if bias_grad_norm else 0.0
+            except Exception:
+                import ipdb; ipdb.set_trace()
+
+            print(
+                '\tweight norm {:.4e}'.format(weight_norm), ', grad norm {:.4e}'.format(weight_grad_norm),
+                ', ratio {:.4e}'.format(weight_ratio),
+                # 'weight type {}, weight grad type {}'.format(fc.weight.type(), fc.weight.grad.type())
+            )
+            print(
+                '\tbias norm {:.4e}'.format(bias_norm), ', grad norm {:.4e}'.format(bias_grad_norm),
+                ', ratio {:.4e}'.format(bias_ratio),
+                # 'bias type {}, bias grad type {}'.format(fc.bias.type(), fc.bias.grad.type())
+            )
 
 
 class RankNetInference(RankNet):
@@ -73,8 +107,8 @@ class RankNetInference(RankNet):
 
 
 class RankNetListWise(RankNet):
-    def __init__(self, net_structures, sigma):
-        super(RankNetListWise, self).__init__(net_structures)
+    def __init__(self, net_structures, sigma, double_precision=False):
+        super(RankNetListWise, self).__init__(net_structures, double_precision)
         self.sigma = sigma
 
     def forward(self, input1):
@@ -83,19 +117,23 @@ class RankNetListWise(RankNet):
             input1 = F.relu(fc(input1))
 
         fc = getattr(self, 'fc' + str(self.fc_layers))
-        return torch.sigmoid(fc(input1)) * self.sigma
+        return fc(input1)
+
 
 ##############
 # train RankNet ListWise
 ##############
-def train_list_wise(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam", small_dataset=False):
+def train_list_wise(
+    start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam", double_precision=False, small_dataset=False, debug=False
+):
     print("start_epoch:{}, additional_epoch:{}, lr:{}".format(start_epoch, additional_epoch, lr))
+    precision = torch.float64 if double_precision else torch.float32
     device = get_device()
 
     ranknet_structure = [136, 64, 16]
-    sigma = 6.0
+    sigma = 1.0
 
-    net = RankNetListWise(ranknet_structure, sigma)
+    net = RankNetListWise(ranknet_structure, sigma, double_precision=double_precision)
     net.to(device)
     # net.apply(init_weights)
     print(net)
@@ -105,7 +143,7 @@ def train_list_wise(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam"
     if optim == "adam":
         optimizer = torch.optim.Adam(net.parameters(), lr=lr)
     elif optim == "sgd":
-        optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.5)
+        optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9)
     else:
         raise ValueError("Optimization method {} not implemented".format(optim))
     print(optimizer)
@@ -129,16 +167,16 @@ def train_list_wise(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam"
         scheduler.step()
         net.train()
         net.zero_grad()
-        batch_size = 100
+        batch_size = 10
         count = 0
-
         loss = 0
+        pairs = 0
 
         for X, Y in train_loader.generate_batch_per_query(df_train):
             if X is None or X.shape[0] == 0:
                 continue
-            X_tensor = torch.Tensor(X).to(device)
-            Y_tensor = torch.Tensor(Y).to(device).view(-1, 1)
+            X_tensor = torch.tensor(X, dtype=precision, device=device)
+            Y_tensor = torch.tensor(Y, dtype=precision, device=device).view(-1, 1)
             y_pred = net(X_tensor)
 
             # with torch.no_grad():
@@ -158,22 +196,33 @@ def train_list_wise(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam"
             C_neg = torch.log(1 + torch.exp(sigma * (y_pred - y_pred.t())))
 
             rel_diff = Y_tensor - Y_tensor.t()
-            pos_pairs = (rel_diff > 0).type(torch.float32)
-            neg_pairs = (rel_diff < 0).type(torch.float32)
+            pos_pairs = (rel_diff > 0).type(precision)
+            neg_pairs = (rel_diff < 0).type(precision)
 
             C = pos_pairs * C_pos + neg_pairs * C_neg
             loss += torch.sum(C, (0, 1))
-
+            pairs += torch.sum(pos_pairs, (0, 1)) + torch.sum(neg_pairs, (0, 1))
             count += 1
-            if False and count % batch_size == 0:
+            if count % batch_size == 0:
+                loss /= pairs
+                print("pairs {}, number of loss {}".format(pairs, loss.item()))
+                loss.backward()
+                # if debug:
+                #    net.dump_param()
                 optimizer.step()
                 net.zero_grad()
-        loss /= total_pairs
-        loss.backward()
-        optimizer.step()
-        net.zero_grad()
+                pairs = 0
+                loss = 0
 
-        print(get_time(), 'Training at Epoch{}, loss, {}'.format(i, loss))
+        if pairs:
+            print('+' * 10, "End of batch, remaining pairs ", pairs)
+            loss /= pairs
+            loss.backward()
+            if debug:
+                net.dump_param()
+            optimizer.step()
+
+        print('-' * 20 + '\n', get_time(), 'Training at Epoch{}, loss, {}'.format(i, loss), '\n' + '-' * 20)
         eval_cross_entropy_loss(net, device, train_loader, phase="Train")
 
         # save to checkpoint every 5 step, and run eval
@@ -195,13 +244,17 @@ def train_list_wise(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam"
 ##############
 # test RankNet
 ##############
-def train(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam", small_dataset=False):
+def train(
+    start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam", double_precision=False,
+    small_dataset=False, debug=False
+):
     print("start_epoch:{}, additional_epoch:{}, lr:{}".format(start_epoch, additional_epoch, lr))
+    precision = torch.float64 if double_precision else torch.float32
     device = get_device()
 
     ranknet_structure = [136, 64, 16]
 
-    net = RankNet(ranknet_structure)
+    net = RankNet(ranknet_structure, double_precision)
     net.to(device)
     net.apply(init_weights)
     print(net)
@@ -235,6 +288,7 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam", small_da
 
     batch_size = 100000
     losses = []
+    count = 0
 
     for i in range(start_epoch, start_epoch + additional_epoch):
 
@@ -247,9 +301,9 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam", small_da
         for x_i, y_i, x_j, y_j in data_loader.generate_query_pair_batch(df, batch_size):
             if x_i is None or x_i.shape[0] == 0:
                 continue
-            x_i, x_j = torch.Tensor(x_i).to(device), torch.Tensor(x_j).to(device)
+            x_i, x_j = torch.tensor(x_i, dtype=precision, device=device), torch.tensor(x_j, dtype=precision, device=device)
             # binary label
-            y = torch.Tensor((y_i > y_j).astype(np.float32)).to(device)
+            y = torch.tensor((y_i > y_j).astype(np.float32), dtype=precision, device=device)
 
             net.zero_grad()
 
@@ -257,6 +311,9 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam", small_da
             loss = loss_func(y_pred, y)
 
             loss.backward()
+            count += 1
+            if count % 25 == 0 and debug:
+                net.dump_param()
             optimizer.step()
 
             lossed_minibatch.append(loss.item())
@@ -266,8 +323,7 @@ def train(start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam", small_da
                 print(get_time(), 'Epoch {}, Minibatch: {}, loss : {}'.format(i, minibatch, loss.item()))
 
         losses.append(np.mean(lossed_minibatch))
-
-        print(get_time(), 'Epoch{}, loss : {}'.format(i, losses[-1]))
+        print('='*20, '\n', get_time(), 'Epoch{}, loss : {}'.format(i, losses[-1]), '\n' + '='*20)
 
         # save to checkpoint every 5 step, and run eval
         if i % 5 == 0 and i != start_epoch:
@@ -334,4 +390,8 @@ def load_from_ckpt(ckpt_file, epoch, model):
 
 if __name__ == "__main__":
     args = parse_args()
-    train_list_wise(args.start_epoch, args.additional_epoch, args.lr, args.optim, args.small_dataset)
+    train_list_wise(
+        args.start_epoch, args.additional_epoch, args.lr, args.optim,
+        args.double_precision,
+        args.small_dataset, args.debug,
+    )

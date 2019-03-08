@@ -71,7 +71,7 @@ def load_train_vali_data(data_fold, small_dataset=False):
 def init_weights(m):
     if type(m) == nn.Linear:
         nn.init.xavier_uniform_(m.weight)
-        m.bias.data.fill_(0.00)
+        m.bias.data.fill_(0.01)
 
 
 def eval_cross_entropy_loss(model, device, loader, phase="Eval", sigma=1.0):
@@ -109,6 +109,7 @@ def eval_cross_entropy_loss(model, device, loader, phase="Eval", sigma=1.0):
 
         avg_cost = total_cost / total_pairs
     print(get_time(), "{} Phase pairwise corss entropy loss {:.6f}, total_paris {}".format(phase, avg_cost.item(), total_pairs))
+
 
 def eval_ndcg_at_k(inference_model, device, df_valid, valid_loader, batch_size, k_list, phase="Eval"):
     # print("Eval Phase evaluate NDCG @ {}".format(k_list))
@@ -163,4 +164,6 @@ def parse_args():
         type=str, default="exp2", choices=["exp2","identity"]
     )
     parser.add_argument("--small_dataset", type=str2bool, nargs='?', const=True, default=False)
+    parser.add_argument("--debug", type=str2bool, nargs='?', const=True, default=False)
+    parser.add_argument("--double_precision", type=str2bool, nargs="?", const=True, default=False)
     return parser.parse_args()
