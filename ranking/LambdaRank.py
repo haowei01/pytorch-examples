@@ -90,7 +90,7 @@ class LambdaRank(nn.Module):
 ######################
 def train(
     start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam",
-    ndcg_gain_in_train="exp2",
+    ndcg_gain_in_train="exp2", sigma=1.0,
     double_precision=False, standardize=False,
     small_dataset=False, debug=False,
 ):
@@ -106,13 +106,13 @@ def train(
 
     lambdarank_structure = [136, 64, 16]
 
-    net = LambdaRank(lambdarank_structure, double_precision=double_precision, sigma=6.0)
+    net = LambdaRank(lambdarank_structure, double_precision=double_precision, sigma=sigma)
     device = get_device()
     net.to(device)
     net.apply(init_weights)
     print(net)
 
-    ckptfile = get_ckptdir('lambdarank', lambdarank_structure, 6.0)
+    ckptfile = get_ckptdir('lambdarank', lambdarank_structure, sigma)
 
     if optim == "adam":
         optimizer = torch.optim.Adam(net.parameters(), lr=lr)
@@ -134,7 +134,6 @@ def train(
 
         count = 0
         batch_size = 100
-        sigma = 1.0
         grad_batch, y_pred_batch = [], []
 
         for X, Y in train_loader.generate_batch_per_query(df_train):
@@ -184,12 +183,12 @@ def train(
 
         # optimizer.step()
         print(get_time(), "training dataset at epoch {}, total queries: {}".format(i, count))
-        eval_cross_entropy_loss(net, device, train_loader, phase="Train")
+        # eval_cross_entropy_loss(net, device, train_loader, phase="Train")
         # eval_ndcg_at_k(net, device, df_train, train_loader, 100000, [10, 30, 50])
 
         if i % 5 == 0 and i != start_epoch:
             print(get_time(), "eval for epoch: {}".format(i))
-            eval_cross_entropy_loss(net, device, df_valid, valid_loader)
+            eval_cross_entropy_loss(net, device, valid_loader)
             eval_ndcg_at_k(net, device, df_valid, valid_loader, 100000, [10, 30])
         if i % 10 == 0 and i != start_epoch:
             save_to_ckpt(ckptfile, i, net, optimizer, scheduler)
@@ -211,10 +210,11 @@ def train(
 
 if __name__ == "__main__":
     parser = get_args_parser()
+    parser.add_argument("--sigma", dest="sigma", type=float, default=1.0)
     args = parser.parse_args()
     train(
         args.start_epoch, args.additional_epoch, args.lr, args.optim,
-        ndcg_gain_in_train=args.ndcg_gain_in_train,
+        ndcg_gain_in_train=args.ndcg_gain_in_train, sigma=args.sigma,
         double_precision=args.double_precision, standardize=args.standardize,
         small_dataset=args.small_dataset, debug=args.debug,
     )
