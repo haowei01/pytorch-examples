@@ -200,8 +200,19 @@ def train_rank_net(
     # save the last ckpt
     save_to_ckpt(ckptfile, start_epoch + additional_epoch, net, optimizer, scheduler)
 
+    # final evaluation
+    net_inference.load_state_dict(net.state_dict())
+    ndcg_result = eval_model(net_inference, device, df_valid, valid_loader)
+
     # save the final model
     torch.save(net.state_dict(), ckptfile)
+    print(
+        get_time(),
+        "finish training " + ", ".join(
+            ["NDCG@{}: {:.5f}".format(k, ndcg_result[k]) for k in ndcg_result]
+        ),
+        '\n\n'
+    )
 
 
 def get_train_inference_net(train_algo, num_features, start_epoch, double_precision):
@@ -308,7 +319,7 @@ def factorized_training_loop(
                     torch.log(1 + torch.exp(sigma * (y_pred - y_pred.t()))) * neg_pairs,
                     (0, 1)
                 )
-                back = torch.sum(l / num_pairs, dim=1, keepdim=True)
+                back = torch.sum(l, dim=1, keepdim=True)
 
                 if torch.sum(back, dim=(0, 1)) == float('inf') or back.shape != y_pred.shape:
                     import ipdb; ipdb.set_trace()
@@ -322,12 +333,13 @@ def factorized_training_loop(
         if count % batch_size == 0:
             loss /= pairs
             minibatch_loss.append(loss.item())
-            print("Epoch {}, number of pairs {}, loss {}".format(epoch, pairs, loss.item()))
+            if debug:
+                print("Epoch {}, number of pairs {}, loss {}".format(epoch, pairs, loss.item()))
             if training_algo == SUM_SESSION:
                 loss.backward()
             elif training_algo == ACC_GRADIENT:
                 for grad, y_pred in zip(grad_batch, y_pred_batch):
-                    y_pred.backward(grad / batch_size)
+                    y_pred.backward(grad / pairs)
 
             if count % (4 * batch_size) and debug:
                 net.dump_param()
@@ -345,7 +357,7 @@ def factorized_training_loop(
             loss.backward()
         else:
             for grad, y_pred in zip(grad_batch, y_pred_batch):
-                y_pred.backward(grad / (count % batch_size))
+                y_pred.backward(grad / pairs)
 
         if debug:
             net.dump_param()
@@ -369,7 +381,8 @@ def eval_model(inference_model, device, df_valid, valid_loader):
 
     with torch.no_grad():
         eval_cross_entropy_loss(inference_model, device, valid_loader)
-        eval_ndcg_at_k(inference_model, device, df_valid, valid_loader, batch_size, [10, 30])
+        ndcg_result = eval_ndcg_at_k(inference_model, device, df_valid, valid_loader, batch_size, [10, 30])
+    return ndcg_result
 
 
 def load_from_ckpt(ckpt_file, epoch, model):

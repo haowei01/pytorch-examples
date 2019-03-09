@@ -152,8 +152,10 @@ def eval_ndcg_at_k(inference_model, device, df_valid, valid_loader, batch_size, 
             if not np.isnan(ndcg_k):
                 session_ndcgs[k].append(ndcg_k)
 
-    ndcg_result = ", ".join(["NDCG@{}: {:.5f}".format(k, np.mean(session_ndcgs[k])) for k in k_list])
-    print(get_time(), "{} Phase evaluate {}".format(phase, ndcg_result))
+    ndcg_result = {k: np.mean(session_ndcgs[k]) for k in k_list}
+    ndcg_result_print = ", ".join(["NDCG@{}: {:.5f}".format(k, ndcg_result[k]) for k in k_list])
+    print(get_time(), "{} Phase evaluate {}".format(phase, ndcg_result_print))
+    return ndcg_result
 
 
 def str2bool(v):
