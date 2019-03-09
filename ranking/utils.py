@@ -176,6 +176,7 @@ def get_args_parser():
     parser.add_argument("--additional_epoch", dest="additional_epoch", type=int, default=100)
     parser.add_argument("--lr", dest="lr", type=float, default=0.0001)
     parser.add_argument("--optim", dest="optim", type=str, default="adam", choices=["adam", "sgd"])
+    parser.add_argument("--leaky_relu", dest="leaky_relu", type=str2bool, nargs="?", const=True, default=False)
     parser.add_argument(
         "--ndcg_gain_in_train", dest="ndcg_gain_in_train",
         type=str, default="exp2", choices=["exp2","identity"]

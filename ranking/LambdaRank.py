@@ -34,7 +34,7 @@ from utils import (
 
 
 class LambdaRank(nn.Module):
-    def __init__(self, net_structures, sigma=1.0, double_precision=False):
+    def __init__(self, net_structures, leaky_relu=False, sigma=1.0, double_precision=False):
         """Fully Connected Layers with Sigmoid activation at the last layer
 
         :param net_structures: list of int for LambdaRank FC width
@@ -43,18 +43,24 @@ class LambdaRank(nn.Module):
         self.fc_layers = len(net_structures)
         for i in range(len(net_structures) - 1):
             setattr(self, 'fc' + str(i + 1), nn.Linear(net_structures[i], net_structures[i+1]))
+            if leaky_relu:
+                setattr(self, 'act' + str(i + 1), nn.LeakyReLU())
+            else:
+                setattr(self, 'act' + str(i + 1), nn.ReLU())
         setattr(self, 'fc' + str(len(net_structures)), nn.Linear(net_structures[-1], 1))
         if double_precision:
             for i in range(1, len(net_structures) + 1):
                 setattr(self, 'fc' + str(i), getattr(self, 'fc' + str(i)).double())
         self.sigma = sigma
+        # self.activation = nn.Sigmoid()
         self.activation = nn.ReLU6()
 
     def forward(self, input1):
         # from 1 to N - 1 layer, use ReLU as activation function
         for i in range(1, self.fc_layers):
             fc = getattr(self, 'fc' + str(i))
-            input1 = F.relu(fc(input1))
+            act = getattr(self, 'act' + str(i))
+            input1 = act(fc(input1))
 
         fc = getattr(self, 'fc' + str(self.fc_layers))
         return self.activation(fc(input1)) * self.sigma
@@ -89,7 +95,7 @@ class LambdaRank(nn.Module):
 # test LambdaRank
 ######################
 def train(
-    start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam",
+    start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam", leaky_relu=False,
     ndcg_gain_in_train="exp2", sigma=1.0,
     double_precision=False, standardize=False,
     small_dataset=False, debug=False,
@@ -106,7 +112,7 @@ def train(
 
     lambdarank_structure = [136, 64, 16]
 
-    net = LambdaRank(lambdarank_structure, double_precision=double_precision, sigma=sigma)
+    net = LambdaRank(lambdarank_structure, leaky_relu=leaky_relu, double_precision=double_precision, sigma=sigma)
     device = get_device()
     net.to(device)
     net.apply(init_weights)
@@ -133,7 +139,7 @@ def train(
         net.zero_grad()
 
         count = 0
-        batch_size = 100
+        batch_size = 200
         grad_batch, y_pred_batch = [], []
 
         for X, Y in train_loader.generate_batch_per_query(df_train):
@@ -147,8 +153,13 @@ def train(
             y_pred_batch.append(y_pred)
 
             with torch.no_grad():
-                score_diff = 1.0 + torch.exp(sigma * (y_pred - y_pred.t()))
+                pos_pairs_score_diff = 1.0 + torch.exp(sigma * (y_pred - y_pred.t()))
+                neg_pairs_score_diff = 1.0 + torch.exp(-sigma * (y_pred - y_pred.t()))
+
                 Y_tensor = torch.tensor(Y, dtype=precision, device=device).view(-1, 1)
+                rel_diff = Y_tensor - Y_tensor.t()
+                pos_pairs = (rel_diff > 0).type(precision)
+                neg_pairs = (rel_diff < 0).type(precision)
                 if ndcg_gain_in_train == "exp2":
                     gain_diff = torch.pow(2.0, Y_tensor - Y_tensor.t())
                 elif ndcg_gain_in_train == "identity":
@@ -158,7 +169,8 @@ def train(
                 rank_order = torch.argsort(y_pred, dim=0, descending=True).type(torch.float) + 1.0
                 decay_diff = 1.0 / torch.log2(rank_order + 1.0) - 1.0 / torch.log2(rank_order.t() + 1.0)
 
-                lambda_update = - N / score_diff * gain_diff * decay_diff
+                delta_ndcg = N * gain_diff * decay_diff
+                lambda_update = - pos_pairs / pos_pairs_score_diff * delta_ndcg - neg_pairs / neg_pairs_score_diff * delta_ndcg
                 lambda_update = torch.sum(lambda_update, 1, keepdim=True)
 
                 assert lambda_update.shape == y_pred.shape
@@ -183,7 +195,8 @@ def train(
 
         # optimizer.step()
         print(get_time(), "training dataset at epoch {}, total queries: {}".format(i, count))
-        # eval_cross_entropy_loss(net, device, train_loader, phase="Train")
+        if debug:
+            eval_cross_entropy_loss(net, device, train_loader, phase="Train")
         # eval_ndcg_at_k(net, device, df_train, train_loader, 100000, [10, 30, 50])
 
         if i % 5 == 0 and i != start_epoch:
@@ -213,7 +226,7 @@ if __name__ == "__main__":
     parser.add_argument("--sigma", dest="sigma", type=float, default=1.0)
     args = parser.parse_args()
     train(
-        args.start_epoch, args.additional_epoch, args.lr, args.optim,
+        args.start_epoch, args.additional_epoch, args.lr, args.optim, args.leaky_relu,
         ndcg_gain_in_train=args.ndcg_gain_in_train, sigma=args.sigma,
         double_precision=args.double_precision, standardize=args.standardize,
         small_dataset=args.small_dataset, debug=args.debug,
