@@ -88,14 +88,20 @@ def eval_cross_entropy_loss(model, device, loader, phase="Eval", sigma=1.0):
     with torch.set_grad_enabled(False):
         total_cost = 0
         total_pairs = loader.get_num_pairs()
-
+        pairs_in_compute = 0
         for X, Y in loader.generate_batch_per_query(loader.df):
-            Y_tensor = torch.Tensor(Y).to(device).view(-1, 1)
-            rel_diff = Y_tensor - Y_tensor.t()
-            pos_pairs = (rel_diff > 0).type(torch.float32)
-            neg_pairs = (rel_diff < 0).type(torch.float32)
-            if not torch.sum(pos_pairs, (0, 1)):
+            Y = Y.reshape(-1, 1)
+            rel_diff = Y - Y.T
+            pos_pairs = (rel_diff > 0).astype(np.float32)
+            num_pos_pairs = np.sum(pos_pairs, (0, 1))
+            # skip negative sessions, no relevant info:
+            if num_pos_pairs == 0:
                 continue
+            neg_pairs = (rel_diff < 0).astype(np.float32)
+            num_pairs = 2 * num_pos_pairs  # num pos pairs and neg pairs are always the same
+            pos_pairs = torch.tensor(pos_pairs, device=device)
+            neg_pairs = torch.tensor(neg_pairs, device=device)
+            pairs_in_compute += num_pairs
 
             X_tensor = torch.Tensor(X).to(device)
             y_pred = model(X_tensor)
@@ -108,6 +114,7 @@ def eval_cross_entropy_loss(model, device, loader, phase="Eval", sigma=1.0):
                 import ipdb; ipdb.set_trace()
             total_cost += cost
 
+        assert total_pairs == pairs_in_compute
         avg_cost = total_cost / total_pairs
     print(
         get_time(),

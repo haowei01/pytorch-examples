@@ -161,6 +161,7 @@ def train_rank_net(
 
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.75)
 
+    loss_func = None
     if train_algo == BASELINE:
         loss_func = torch.nn.BCELoss()
         loss_func.to(device)
@@ -179,10 +180,11 @@ def train_rank_net(
                 train_loader,
                 precision=precision, device=device, debug=debug
             )
-        elif train_algo == SUM_SESSION:
+        elif train_algo in [SUM_SESSION, ACC_GRADIENT]:
             epoch_loss = factorized_training_loop(
                 i, net, None, optimizer,
                 train_loader,
+                training_algo=train_algo,
                 precision=precision, device=device, debug=debug
             )
 
@@ -263,26 +265,30 @@ def baseline_pairwise_training_loop(
 
 def factorized_training_loop(
     epoch, net, loss_func, optimizer,
-    train_loader, batch_size=100, sigma=1.0,
+    train_loader, batch_size=200, sigma=1.0,
     training_algo=SUM_SESSION,
     precision=torch.float32, device="cpu",
     debug=False
 ):
+    print(training_algo)
     minibatch_loss = []
     count, loss, pairs = 0, 0, 0
     grad_batch, y_pred_batch = [], []
     for X, Y in train_loader.generate_batch_per_query():
         if X is None or X.shape[0] == 0:
             continue
-        Y_tensor = torch.tensor(Y, dtype=precision, device=device).view(-1, 1)
-        rel_diff = Y_tensor - Y_tensor.t()
-        pos_pairs = (rel_diff > 0).type(precision)
-        neg_pairs = (rel_diff < 0).type(precision)
-
-        num_pairs = torch.sum(pos_pairs, (0, 1)) + torch.sum(neg_pairs, (0, 1))
+        Y = Y.reshape(-1, 1)
+        rel_diff = Y - Y.T
+        pos_pairs = (rel_diff > 0).astype(np.float32)
+        num_pos_pairs = np.sum(pos_pairs, (0, 1))
         # skip negative sessions, no relevant info:
-        if num_pairs == 0:
+        if num_pos_pairs == 0:
             continue
+        neg_pairs = (rel_diff < 0).astype(np.float32)
+        num_pairs = 2 * num_pos_pairs  # num pos pairs and neg pairs are always the same
+
+        pos_pairs = torch.tensor(pos_pairs, dtype=precision, device=device)
+        neg_pairs = torch.tensor(neg_pairs, dtype=precision, device=device)
 
         X_tensor = torch.tensor(X, dtype=precision, device=device)
         y_pred = net(X_tensor)
@@ -316,12 +322,12 @@ def factorized_training_loop(
         if count % batch_size == 0:
             loss /= pairs
             minibatch_loss.append(loss.item())
+            print("Epoch {}, number of pairs {}, loss {}".format(epoch, pairs, loss.item()))
             if training_algo == SUM_SESSION:
-                print("Epoch {}, number of pairs {}, loss {}".format(epoch, pairs, loss.item()))
                 loss.backward()
             elif training_algo == ACC_GRADIENT:
                 for grad, y_pred in zip(grad_batch, y_pred_batch):
-                    y_pred.backward(grad / pairs)
+                    y_pred.backward(grad / batch_size)
 
             if count % (4 * batch_size) and debug:
                 net.dump_param()
@@ -339,7 +345,7 @@ def factorized_training_loop(
             loss.backward()
         else:
             for grad, y_pred in zip(grad_batch, y_pred_batch):
-                y_pred.backward(grad / pairs)
+                y_pred.backward(grad / (count % batch_size))
 
         if debug:
             net.dump_param()
