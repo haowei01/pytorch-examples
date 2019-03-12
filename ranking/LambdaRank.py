@@ -9,9 +9,18 @@ ListWise Rank
     dS / dw is calculated in this step
 2. Without explicit define the loss function L, dL / dw_k = Sum_i [(dL / dS_i) * (dS_i / dw_k)]
 3. for each document Di, find all other pairs j, calculate lambda:
-    lambda = N / ( 1 + exp(Si - Si)) * (gain(rel_i) - gain(rel_j)) * (1/log(i+1) - 1/log(j+1))
+    for rel(i) > rel(j)
+    lambda += - N / (1 + exp(Si - Sj)) * (gain(rel_i) - gain(rel_j)) * |1/log(pos_i+1) - 1/log(pos_j+1)|
+    for rel(i) < rel(j)
+    lambda += - N / (1 + exp(Sj - Si)) * (gain(rel_i) - gain(rel_j)) * |1/log(pos_i+1) - 1/log(pos_j+1)|
     and lambda is dL / dS_i
 4. in the back propagate send lambda backward to update w
+
+to compare with RankNet factorization, the gradient back propagate is:
+    pos pairs
+    lambda += - 1/(1 + exp(Si - Sj))
+    neg pairs
+    lambda += 1/(1 + exp(Sj - Si))
 """
 
 import numpy as np
@@ -167,7 +176,7 @@ def train(
                 else:
                     raise ValueError("ndcg_gain method not supported yet {}".format(ndcg_gain_in_train))
                 rank_order = torch.argsort(y_pred, dim=0, descending=True).type(torch.float) + 1.0
-                decay_diff = 1.0 / torch.log2(rank_order + 1.0) - 1.0 / torch.log2(rank_order.t() + 1.0)
+                decay_diff = torch.abs(1.0 / torch.log2(rank_order + 1.0) - 1.0 / torch.log2(rank_order.t() + 1.0))
 
                 delta_ndcg = N * gain_diff * decay_diff
                 lambda_update = - pos_pairs / pos_pairs_score_diff * delta_ndcg - neg_pairs / neg_pairs_score_diff * delta_ndcg

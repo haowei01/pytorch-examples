@@ -47,8 +47,7 @@ class RankNet(nn.Module):
         if double_precision:
             last_layer = last_layer.double()
         setattr(self, 'fc' + str(len(net_structures)), last_layer)
-        # self.activation = nn.ReLU6()
-        self.activation = nn.Sigmoid()
+        self.activation = nn.ReLU6()
 
     def forward(self, input1):
         for i in range(1, self.fc_layers):
@@ -314,11 +313,11 @@ def factorized_training_loop(
         elif training_algo == ACC_GRADIENT:
             y_pred_batch.append(y_pred)
             with torch.no_grad():
-                l_pos_pairs = 1 + torch.exp(sigma * (y_pred - y_pred.t()))
-                l_neg_pairs = 1 + torch.exp(- sigma * (y_pred - y_pred.t()))
-                l = -sigma * pos_pairs / l_pos_pairs + sigma * neg_pairs / l_neg_pairs
+                l_pos = 1 + torch.exp(sigma * (y_pred - y_pred.t()))
+                l_neg = 1 + torch.exp(- sigma * (y_pred - y_pred.t()))
+                l = -sigma * pos_pairs / l_pos + sigma * neg_pairs / l_neg
                 loss += torch.sum(
-                    torch.log(l_pos_pairs) * pos_pairs + torch.log(l_neg_pairs) * neg_pairs,
+                    torch.log(l_neg) * pos_pairs + torch.log(l_pos) * neg_pairs,
                     (0, 1)
                 )
                 back = torch.sum(l, dim=1, keepdim=True)
