@@ -173,7 +173,7 @@ def train(
                 pos_pairs = (rel_diff > 0).type(precision)
                 neg_pairs = (rel_diff < 0).type(precision)
                 if ndcg_gain_in_train == "exp2":
-                    gain_diff = torch.pow(2.0, Y_tensor - Y_tensor.t())
+                    gain_diff = torch.pow(2.0, Y_tensor) - torch.pow(2.0, Y_tensor.t())
                 elif ndcg_gain_in_train == "identity":
                     gain_diff = Y_tensor - Y_tensor.t()
                 else:
