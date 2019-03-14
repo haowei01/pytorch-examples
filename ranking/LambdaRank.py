@@ -22,8 +22,8 @@ to compare with RankNet factorization, the gradient back propagate is:
     neg pairs
     lambda += 1/(1 + exp(Sj - Si))
 """
-
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -140,7 +140,6 @@ def train(
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.75)
 
     ideal_dcg = NDCG(2**9, ndcg_gain_in_train)
-    num_sessions = train_loader.get_num_sessions()
 
     for i in range(start_epoch, start_epoch + additional_epoch):
         scheduler.step()
@@ -151,7 +150,7 @@ def train(
         batch_size = 200
         grad_batch, y_pred_batch = [], []
 
-        for X, Y in train_loader.generate_batch_per_query(df_train):
+        for X, Y in train_loader.generate_batch_per_query():
             if np.sum(Y) == 0:
                 # negative session, cannot learn useful signal
                 continue
@@ -160,6 +159,10 @@ def train(
             X_tensor = torch.tensor(X, dtype=precision, device=device)
             y_pred = net(X_tensor)
             y_pred_batch.append(y_pred)
+            # compute the rank order of each document
+            rank_df = pd.DataFrame({"Y": Y, "doc": np.arange(Y.shape[0])})
+            rank_df = rank_df.sort_values("Y").reset_index(drop=True)
+            rank_order = rank_df.sort_values("doc").index.values + 1
 
             with torch.no_grad():
                 pos_pairs_score_diff = 1.0 + torch.exp(sigma * (y_pred - y_pred.t()))
@@ -175,15 +178,20 @@ def train(
                     gain_diff = Y_tensor - Y_tensor.t()
                 else:
                     raise ValueError("ndcg_gain method not supported yet {}".format(ndcg_gain_in_train))
-                rank_order = torch.argsort(y_pred, dim=0, descending=True).type(torch.float) + 1.0
-                decay_diff = torch.abs(1.0 / torch.log2(rank_order + 1.0) - 1.0 / torch.log2(rank_order.t() + 1.0))
+
+                rank_order_tensor = torch.tensor(rank_order, dtype=precision, device=device).view(-1, 1)
+                decay_diff = torch.abs(
+                    1.0 / torch.log2(rank_order_tensor + 1.0) -
+                    1.0 / torch.log2(rank_order_tensor.t() + 1.0)
+                )
 
                 delta_ndcg = N * gain_diff * decay_diff
-                lambda_update = - pos_pairs / pos_pairs_score_diff * delta_ndcg - neg_pairs / neg_pairs_score_diff * delta_ndcg
+                lambda_update = - (pos_pairs / pos_pairs_score_diff + neg_pairs / neg_pairs_score_diff) * delta_ndcg
                 lambda_update = torch.sum(lambda_update, 1, keepdim=True)
 
                 assert lambda_update.shape == y_pred.shape
-                if torch.sum(lambda_update, (0, 1)).item() == float('inf'):
+                check_grad = torch.sum(lambda_update, (0, 1)).item()
+                if check_grad == float('inf') or np.isnan(check_grad):
                     import ipdb; ipdb.set_trace()
                 grad_batch.append(lambda_update)
 
