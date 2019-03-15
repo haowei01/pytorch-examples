@@ -31,13 +31,33 @@ Feed forward NN. Gradient is proportional to NDCG change of swapping two pairs o
 
 to choose the optimal learning rate, use smaller dataset:
 ```
-python ranking/LambdaRank.py --lr 0.0001 --ndcg_gain_in_train exp2 --small_dataset --debug --standardize
+python ranking/LambdaRank.py --lr 0.01 --ndcg_gain_in_train exp2 --small_dataset --debug --standardize
 ```
 otherwise, use normal dataset:
 ```
-python ranking/LambdaRank.py --lr 0.0001 --ndcg_gain_in_train exp2 --standardize
+python ranking/LambdaRank.py --lr 0.01 --ndcg_gain_in_train exp2 --standardize
 ```
-to switch identity gain in NDCG, use `--ndcg_gain_in_train identity`
+to switch identity gain in NDCG in training, use `--ndcg_gain_in_train identity`
+
+Total pairs per epoch are 63566774 currently each pairs are calculated twice.
+The following ndcg number are at eval phase and are using exp2 gain
+
+| optimizer| lr | epoch |loss (eval)| ndcg@10 | ndcg@30 | sec/epoch | Gain func | pairs/sec |
+| :----:| ------ |:-----:|-----------|---------| -----| ----------| --------------- | ----------- |
+| adam  | 0.001  |  25 | 0.638664 | 0.42470 | 0.49858 | 204 | identity | 311602 |
+| adam  | 0.001  |  50 | 0.637417 | 0.42910 | 0.50267 | 204 | identity | 311602 |
+| adam  | 0.01   | 25  | 0.635290 | 0.43667 | 0.50687 | 204 | identity | 311602 |
+| adam  | 0.01   | 50  | 0.639860 | 0.43874 | 0.50896 | 204 | identity | 311602 |
+| adam  | 0.01   | 5   | 0.645545 | 0.43627 | 0.50459 | 208 | exp2 | 304876 |
+| adam  | 0.01   | 25  | 0.646903 | 0.44155 | 0.51165 | 208 | exp2 | 304876 |
+| adam  | 0.01   | 35  | 0.644680 | 0.44454 | 0.51364 | 208 | exp2 | 304876 |
+
+As the result compared with RankNet, LambdaRank's NDCG is generally better than RankNet, but cross entropy loss is higher
+This is mainly due to LambdaRank maximizing the NDCG, while RankNet minimizing the pairwise cross entropy loss.
+
 
 ## Dependencies:
-pytorch-1.0
+* pytorch-1.0
+* pandas
+* numpy
+* sklearn

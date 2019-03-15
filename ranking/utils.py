@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from load_mslr import get_time, DataLoader
 from metrics import NDCG
@@ -101,16 +102,20 @@ def eval_cross_entropy_loss(model, device, loader, phase="Eval", sigma=1.0):
             num_pairs = 2 * num_pos_pairs  # num pos pairs and neg pairs are always the same
             pos_pairs = torch.tensor(pos_pairs, device=device)
             neg_pairs = torch.tensor(neg_pairs, device=device)
+            Sij = pos_pairs - neg_pairs
+            # only calculate the different pairs
+            diff_pairs = pos_pairs + neg_pairs
             pairs_in_compute += num_pairs
 
             X_tensor = torch.Tensor(X).to(device)
             y_pred = model(X_tensor)
-            C_pos = torch.log(1 + torch.exp(-sigma * (y_pred - y_pred.t())))
-            C_neg = torch.log(1 + torch.exp(sigma * (y_pred - y_pred.t())))
+            y_pred_diff = y_pred - y_pred.t()
 
-            C = pos_pairs * C_pos + neg_pairs * C_neg
+            # logsigmoid(x) = log(1 / (1 + exp(-x))) equivalent to log(1 + exp(-x))
+            C = 0.5 * (1 - Sij) * sigma * y_pred_diff - F.logsigmoid(-sigma * y_pred_diff)
+            C = C * diff_pairs
             cost = torch.sum(C, (0, 1))
-            if cost.item() == float('inf'):
+            if cost.item() == float('inf') or np.isnan(cost.item()):
                 import ipdb; ipdb.set_trace()
             total_cost += cost
 

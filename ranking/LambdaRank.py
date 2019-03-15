@@ -21,12 +21,23 @@ to compare with RankNet factorization, the gradient back propagate is:
     lambda += - 1/(1 + exp(Si - Sj))
     neg pairs
     lambda += 1/(1 + exp(Sj - Si))
+
+to reduce the computation:
+    in RankNet
+    lambda = sigma * (0.5 * (1 - Sij) - 1 / (1 + exp(sigma *(Si - Sj)))))
+    when Rel_i > Rel_j, Sij = 1:
+        lambda = -sigma / (1 + exp(sigma(Si - Sj)))
+    when Rel_i < Rel_j, Sij = -1:
+        lambda = sigma  / (1 + exp(sigma(Sj - Si)))
+
+    in LambdaRank
+    lambda = sigma * (0.5 * (1 - Sij) - 1 / (1 + exp(sigma *(Si - Sj))))) * |delta_NDCG|
 """
+
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from load_mslr import get_time
 from metrics import NDCG
@@ -166,12 +177,12 @@ def train(
 
             with torch.no_grad():
                 pos_pairs_score_diff = 1.0 + torch.exp(sigma * (y_pred - y_pred.t()))
-                neg_pairs_score_diff = 1.0 + torch.exp(-sigma * (y_pred - y_pred.t()))
 
                 Y_tensor = torch.tensor(Y, dtype=precision, device=device).view(-1, 1)
                 rel_diff = Y_tensor - Y_tensor.t()
                 pos_pairs = (rel_diff > 0).type(precision)
                 neg_pairs = (rel_diff < 0).type(precision)
+                Sij = pos_pairs - neg_pairs
                 if ndcg_gain_in_train == "exp2":
                     gain_diff = torch.pow(2.0, Y_tensor) - torch.pow(2.0, Y_tensor.t())
                 elif ndcg_gain_in_train == "identity":
@@ -180,13 +191,10 @@ def train(
                     raise ValueError("ndcg_gain method not supported yet {}".format(ndcg_gain_in_train))
 
                 rank_order_tensor = torch.tensor(rank_order, dtype=precision, device=device).view(-1, 1)
-                decay_diff = torch.abs(
-                    1.0 / torch.log2(rank_order_tensor + 1.0) -
-                    1.0 / torch.log2(rank_order_tensor.t() + 1.0)
-                )
+                decay_diff = 1.0 / torch.log2(rank_order_tensor + 1.0) - 1.0 / torch.log2(rank_order_tensor.t() + 1.0)
 
-                delta_ndcg = N * gain_diff * decay_diff
-                lambda_update = - (pos_pairs / pos_pairs_score_diff + neg_pairs / neg_pairs_score_diff) * delta_ndcg
+                delta_ndcg = torch.abs(N * gain_diff * decay_diff)
+                lambda_update = sigma * (0.5 * (1 - Sij) - 1 / pos_pairs_score_diff) * delta_ndcg
                 lambda_update = torch.sum(lambda_update, 1, keepdim=True)
 
                 assert lambda_update.shape == y_pred.shape
