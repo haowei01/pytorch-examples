@@ -2,7 +2,7 @@
 
 Some implementations of Deep Learning algorithms in PyTorch.
 
-## Ranking - 
+## Ranking - Learn to Rank
 
 ### RankNet
 Feed forward NN, minimize document pairwise cross entropy loss function
