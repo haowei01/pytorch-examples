@@ -36,3 +36,17 @@ class DataLoader:
             self.test_df = pd.read_csv(os.path.join(self.data_dir, 'test.zip'))
             self.test_df.to_pickle(test_pkl_file)
         print('{} test file size {}'.format(get_time(), self.test_df.shape[0]))
+
+    def get_num_sessions(self, type='random'):
+        """
+        :param type: 'random', 'biased', or 'test'
+        :return: num of distinct sessions
+        """
+        if type == 'random':
+            return len(self.random_df.srch_id.unique())
+        elif type == 'biased':
+            return len(self.biased_click_df.srch_id.unique())
+        elif type == 'test':
+            return len(self.test_df.srch_id.unique())
+        else:
+            raise ValueError("type not in 'random', 'biased', or 'test'")
