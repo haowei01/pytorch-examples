@@ -153,7 +153,6 @@ def train(
     ideal_dcg = NDCG(2**9, ndcg_gain_in_train)
 
     for i in range(start_epoch, start_epoch + additional_epoch):
-        scheduler.step()
         net.train()
         net.zero_grad()
 
@@ -230,6 +229,8 @@ def train(
             eval_ndcg_at_k(net, device, df_valid, valid_loader, 100000, [10, 30])
         if i % 10 == 0 and i != start_epoch:
             save_to_ckpt(ckptfile, i, net, optimizer, scheduler)
+
+        scheduler.step()
 
     # save the last ckpt
     save_to_ckpt(ckptfile, start_epoch + additional_epoch, net, optimizer, scheduler)
