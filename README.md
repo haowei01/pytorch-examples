@@ -61,3 +61,8 @@ This is mainly due to LambdaRank maximizing the NDCG, while RankNet minimizing t
 * pandas
 * numpy
 * sklearn
+
+
+## Datasets:
+* [Mircosoft Web-10K](https://www.microsoft.com/en-us/research/project/mslr/)
+* [Personalize Expedia Hotel Searches - ICDM 2013](https://www.kaggle.com/c/expedia-personalized-sort/data)
