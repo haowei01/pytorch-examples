@@ -62,6 +62,16 @@ This is mainly due to LambdaRank maximizing the NDCG, while RankNet minimizing t
 * numpy
 * sklearn
 
+install from anaconda:
+```
+conda create -n pytorch python=2.7 (or python=3.6)
+```
+use nvcc --version to check the cuda version (e.g. 9.0)
+```
+conda install pytorch torchvision cudatoolkit=9.0 -c pytorch
+conda install pandas
+conda install -c anaconda scikit-learn
+```
 
 ## Datasets:
 * [Mircosoft Web-10K](https://www.microsoft.com/en-us/research/project/mslr/)
