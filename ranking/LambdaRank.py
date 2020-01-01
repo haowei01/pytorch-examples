@@ -38,6 +38,7 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
+from torch.utils.tensorboard import SummaryWriter
 
 from load_mslr import get_time
 from metrics import NDCG
@@ -119,8 +120,11 @@ def train(
     ndcg_gain_in_train="exp2", sigma=1.0,
     double_precision=False, standardize=False,
     small_dataset=False, debug=False,
+    output_dir="/tmp/ranking_output/",
 ):
     print("start_epoch:{}, additional_epoch:{}, lr:{}".format(start_epoch, additional_epoch, lr))
+    writer = SummaryWriter(output_dir)
+
     precision = torch.float64 if double_precision else torch.float32
 
     # get training and validation data:
@@ -220,13 +224,13 @@ def train(
         # optimizer.step()
         print(get_time(), "training dataset at epoch {}, total queries: {}".format(i, count))
         if debug:
-            eval_cross_entropy_loss(net, device, train_loader, phase="Train")
+            eval_cross_entropy_loss(net, device, train_loader, i, writer, phase="Train")
         # eval_ndcg_at_k(net, device, df_train, train_loader, 100000, [10, 30, 50])
 
         if i % 5 == 0 and i != start_epoch:
             print(get_time(), "eval for epoch: {}".format(i))
-            eval_cross_entropy_loss(net, device, valid_loader)
-            eval_ndcg_at_k(net, device, df_valid, valid_loader, 100000, [10, 30])
+            eval_cross_entropy_loss(net, device, valid_loader, i, writer)
+            eval_ndcg_at_k(net, device, df_valid, valid_loader, 100000, [10, 30], i, writer)
         if i % 10 == 0 and i != start_epoch:
             save_to_ckpt(ckptfile, i, net, optimizer, scheduler)
 
@@ -237,7 +241,9 @@ def train(
 
     # save the final model
     torch.save(net.state_dict(), ckptfile)
-    ndcg_result = eval_ndcg_at_k(net, device, df_valid, valid_loader, 100000, [10, 30])
+    ndcg_result = eval_ndcg_at_k(
+        net, device, df_valid, valid_loader, 100000, [10, 30], start_epoch + additional_epoch,
+        writer)
     print(
         get_time(),
         "finish training " + ", ".join(
@@ -256,4 +262,5 @@ if __name__ == "__main__":
         ndcg_gain_in_train=args.ndcg_gain_in_train, sigma=args.sigma,
         double_precision=args.double_precision, standardize=args.standardize,
         small_dataset=args.small_dataset, debug=args.debug,
+        output_dir=args.output_dir,
     )

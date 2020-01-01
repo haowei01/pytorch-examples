@@ -75,7 +75,7 @@ def init_weights(m):
         m.bias.data.fill_(0.01)
 
 
-def eval_cross_entropy_loss(model, device, loader, phase="Eval", sigma=1.0):
+def eval_cross_entropy_loss(model, device, loader, epoch, writer=None, phase="Eval", sigma=1.0):
     """
     formula in https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/MSR-TR-2010-82.pdf
 
@@ -123,12 +123,17 @@ def eval_cross_entropy_loss(model, device, loader, phase="Eval", sigma=1.0):
         avg_cost = total_cost / total_pairs
     print(
         get_time(),
-        "{} Phase pairwise corss entropy loss {:.6f}, total_paris {}".format(
-            phase, avg_cost.item(), total_pairs
+        "Epoch {}: {} Phase pairwise corss entropy loss {:.6f}, total_paris {}".format(
+            epoch, phase, avg_cost.item(), total_pairs
         ))
+    if writer:
+        writer.add_scalars('loss/cross_entropy', {phase: avg_cost.item()}, epoch)
 
 
-def eval_ndcg_at_k(inference_model, device, df_valid, valid_loader, batch_size, k_list, phase="Eval"):
+def eval_ndcg_at_k(
+        inference_model, device, df_valid, valid_loader, batch_size, k_list, epoch,
+        writer=None, phase="Eval"
+):
     # print("Eval Phase evaluate NDCG @ {}".format(k_list))
     ndcg_metrics = {k: NDCG(k) for k in k_list}
     qids, rels, scores = [], [], []
@@ -160,6 +165,9 @@ def eval_ndcg_at_k(inference_model, device, df_valid, valid_loader, batch_size, 
     ndcg_result = {k: np.mean(session_ndcgs[k]) for k in k_list}
     ndcg_result_print = ", ".join(["NDCG@{}: {:.5f}".format(k, ndcg_result[k]) for k in k_list])
     print(get_time(), "{} Phase evaluate {}".format(phase, ndcg_result_print))
+    if writer:
+        for k in k_list:
+            writer.add_scalars("metrics/NDCG@{}".format(k), {phase: ndcg_result[k]}, epoch)
     return ndcg_result
 
 
@@ -190,4 +198,5 @@ def get_args_parser():
     parser.add_argument("--debug", type=str2bool, nargs='?', const=True, default=False)
     parser.add_argument("--double_precision", type=str2bool, nargs="?", const=True, default=False)
     parser.add_argument("--standardize", type=str2bool, nargs="?", const=True, default=False)
+    parser.add_argument("--output_dir", dest="output_dir", type=str, default="/tmp/ranking_output/")
     return parser

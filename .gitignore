@@ -7,4 +7,5 @@
 venv/*
 
 ranking/data/mslr-*
+ranking/data/expedia
 ranking/ckptdir/

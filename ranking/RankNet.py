@@ -16,6 +16,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.tensorboard import SummaryWriter
 
 from load_mslr import get_time
 from utils import (
@@ -116,7 +117,8 @@ def train_rank_net(
     start_epoch=0, additional_epoch=100, lr=0.0001, optim="adam",
     train_algo=SUM_SESSION,
     double_precision=False, standardize=False,
-    small_dataset=False, debug=False
+    small_dataset=False, debug=False,
+    output_dir="/tmp/ranking_output/",
 ):
     """
 
@@ -132,6 +134,8 @@ def train_rank_net(
     :return:
     """
     print("start_epoch:{}, additional_epoch:{}, lr:{}".format(start_epoch, additional_epoch, lr))
+    writer = SummaryWriter(output_dir)
+
     precision = torch.float64 if double_precision else torch.float32
 
     # get training and validation data:
@@ -195,14 +199,15 @@ def train_rank_net(
         if i % 5 == 0 and i != start_epoch:
             save_to_ckpt(ckptfile, i, net, optimizer, scheduler)
             net_inference.load_state_dict(net.state_dict())
-            eval_model(net_inference, device, df_valid, valid_loader)
+            eval_model(net_inference, device, df_valid, valid_loader, i, writer)
 
     # save the last ckpt
     save_to_ckpt(ckptfile, start_epoch + additional_epoch, net, optimizer, scheduler)
 
     # final evaluation
     net_inference.load_state_dict(net.state_dict())
-    ndcg_result = eval_model(net_inference, device, df_valid, valid_loader)
+    ndcg_result = eval_model(
+        net_inference, device, df_valid, valid_loader, start_epoch + additional_epoch, writer)
 
     # save the final model
     torch.save(net.state_dict(), ckptfile)
@@ -367,22 +372,22 @@ def factorized_training_loop(
         return np.mean(minibatch_loss)
 
 
-def eval_model(inference_model, device, df_valid, valid_loader):
+def eval_model(inference_model, device, df_valid, valid_loader, epoch, writer=None):
     """
-    :param model: torch.nn.Module
-    :param inference_model: torch.nn.Module
-    :param loss_func: loss function
-    :param device: str, cpu or cuda:id
-    :param df_valid: pandas.DataFrame with validation data
+    :param torch.nn.Module inference_model:
+    :param str device: cpu or cuda:id
+    :param pandas.DataFrame df_valid:
     :param valid_loader:
+    :param int epoch:
     :return:
     """
     inference_model.eval()  # Set model to evaluate mode
     batch_size = 1000000
 
     with torch.no_grad():
-        eval_cross_entropy_loss(inference_model, device, valid_loader)
-        ndcg_result = eval_ndcg_at_k(inference_model, device, df_valid, valid_loader, batch_size, [10, 30])
+        eval_cross_entropy_loss(inference_model, device, valid_loader, epoch, writer)
+        ndcg_result = eval_ndcg_at_k(
+            inference_model, device, df_valid, valid_loader, batch_size, [10, 30], epoch, writer)
     return ndcg_result
 
 
@@ -415,4 +420,5 @@ if __name__ == "__main__":
         args.train_algo,
         args.double_precision, args.standardize,
         args.small_dataset, args.debug,
+        output_dir=args.output_dir,
     )

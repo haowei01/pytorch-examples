@@ -35,7 +35,9 @@ python ranking/LambdaRank.py --lr 0.01 --ndcg_gain_in_train exp2 --small_dataset
 ```
 otherwise, use normal dataset:
 ```
-python ranking/LambdaRank.py --lr 0.01 --ndcg_gain_in_train exp2 --standardize
+OUTPUT_DIR=/tmp/ranking_output/
+python ranking/LambdaRank.py --lr 0.01 --ndcg_gain_in_train exp2 --standardize \
+--output_dir=$OUTPUT_DIR
 ```
 to switch identity gain in NDCG in training, use `--ndcg_gain_in_train identity`
 
@@ -55,6 +57,14 @@ The following ndcg number are at eval phase and are using exp2 gain
 As the result compared with RankNet, LambdaRank's NDCG is generally better than RankNet, but cross entropy loss is higher
 This is mainly due to LambdaRank maximizing the NDCG, while RankNet minimizing the pairwise cross entropy loss.
 
+### visualize with tensorboard
+```
+tensorboard --logdir $OUTPUT_DIR --port=6006
+```
+if in a remote machine, run the tunnel through
+```
+ssh -fN $REMOTE_MACHINE -L 6006:127.0.0.1:6006
+```
 
 ## Dependencies:
 * pytorch-1.0
@@ -69,8 +79,7 @@ conda create -n pytorch python=2.7 (or python=3.6)
 use nvcc --version to check the cuda version (e.g. 9.0)
 ```
 conda install pytorch torchvision cudatoolkit=9.0 -c pytorch
-conda install pandas
-conda install -c anaconda scikit-learn
+conda install -c anaconda pandas scikit-learn tensorboard
 ```
 
 ## Datasets:
