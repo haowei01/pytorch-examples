@@ -66,6 +66,8 @@ if in a remote machine, run the tunnel through
 ssh -fN $REMOTE_MACHINE -L 6006:127.0.0.1:6006
 ```
 
+![tensorboard screenshot](./images/tensorboard_ndcg.png)
+
 ## Dependencies:
 * pytorch-1.0
 * pandas
