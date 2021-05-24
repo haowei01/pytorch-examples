@@ -81,7 +81,8 @@ conda create -n pytorch python=2.7 (or python=3.6)
 use nvcc --version to check the cuda version (e.g. 9.0)
 ```
 conda install pytorch torchvision cudatoolkit=9.0 -c pytorch
-conda install -c anaconda pandas scikit-learn tensorboard
+conda install -c anaconda pandas scikit-learn tensorboard ipython
+conda install -c conda-forge matplotlib
 ```
 
 ## Datasets:
