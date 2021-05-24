@@ -62,7 +62,8 @@ class UpliftRankerTrainer:
 
     def __init__(
             self, ranker, df_train, df_valid, features,
-            treatment='is_treatment', effect='effect', cost='cost'
+            treatment='is_treatment', effect='effect', cost='cost',
+            learning_rate=0.001, weight_decay=1e-5
     ):
         """Initialize Uplift Ranker Trainer with ranker structure, and training, validation data.
 
@@ -98,6 +99,66 @@ class UpliftRankerTrainer:
         self.effect_valid = torch.tensor(df_valid[effect].astype(np.float32).values)
         self.cost = torch.tensor(df_train[cost].astype(np.float32).values)
         self.cost_valid = torch.tensor(df_valid[cost].astype(np.float32).values)
+
+        # Optimizer
+        self.optimizer = torch.optim.Adam(
+            self.ranker.parameters(), lr=learning_rate, weight_decay=weight_decay)
+        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=10, gamma=0.75)
+        self.losses = []
+        self.eval_losses = []
+        self.best_eval_loss = None
+        self.save_model_dst = 'model.pt'
+
+    def init_step(self, save_model_dst='model.pt'):
+        """
+        :param str save_model_dst: save model to dst.
+        """
+        def init_weights(m):
+            if type(m) == nn.Linear:
+                nn.init.xavier_uniform_(m.weight)
+                m.bias.data.fill_(0.01)
+        self.ranker.apply(init_weights)
+        self.losses = []
+        self.eval_losses = []
+        self.best_eval_loss = None
+        self.save_model_dst = save_model_dst
+
+    def train(self, steps, validate_steps=1):
+        """
+        :param int steps:
+        :param int validate_steps: validate every N steps
+        """
+        for step in range(steps):
+            self.ranker.train()
+            loss = self.train_step()
+            if step == 0 or (step + 1) % min(5, validate_steps) == 0:
+                print(step, "train loss: ", loss)
+            self.losses.append(loss.item())
+
+            if (step + 1) % validate_steps == 0:
+                self.ranker.eval()
+                with torch.no_grad():
+                    eval_loss = self.calculate_loss(validate=True)
+                    print("eval loss: ", eval_loss)
+                    self.eval_losses.append(eval_loss.item())
+                    if self.best_eval_loss is None or eval_loss.item() < self.best_eval_loss:
+                        # save the best model based on the eval loss
+                        torch.save({
+                            'model_state_dict': self.ranker.state_dict(),
+                            'optimizer_state_dict': self.optimizer.state_dict(),
+                            'lr_scheduler': self.scheduler.state_dict(),
+                        }, 'ckptdir/{}'.format(self.save_model_dst))
+                        self.best_eval_loss = eval_loss.item()
+
+    def train_step(self):
+        """
+        :rtype: torch.Tensor
+        """
+        self.ranker.zero_grad()
+        loss = self.calculate_loss()
+        loss.backward()
+        self.optimizer.step()
+        return loss
 
     def calculate_loss(self, validate=False):
         """Calculate the loss.
