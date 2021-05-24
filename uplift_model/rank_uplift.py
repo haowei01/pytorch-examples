@@ -3,7 +3,7 @@ Uplift Ranker:
 Improve User Retention with Causal Learning
 http://proceedings.mlr.press/v104/du19a/du19a.pdf
 """
-
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -83,21 +83,21 @@ class UpliftRankerTrainer:
             'effect': effect,
             'cost': cost,
         }
-        self.train_feature = torch.tensor(df_train[features])
-        self.valid_feature = torch.tensor(df_valid[features])
+        self.train_feature = torch.tensor(df_train[features].astype(np.float32).values)
+        self.valid_feature = torch.tensor(df_valid[features].astype(np.float32).values)
 
-        self.is_treatment = torch.tensor(df_train[treatment], dtype=torch.bool)
+        self.is_treatment = torch.tensor(df_train[treatment].astype(np.uint8).values).unsqueeze(1)
         self.treatment_cnt = df_train[treatment].sum()
         self.control_cnt = df_train.shape[0] - df_train[treatment].sum()
 
-        self.is_treatment_valid = torch.tensor(df_valid[treatment], dtype=torch.bool)
+        self.is_treatment_valid = torch.tensor(df_valid[treatment].astype(np.uint8).values).unsqueeze(1)
         self.treatment_cnt_valid = df_valid[treatment].sum()
         self.control_cnt_valid = df_valid.shape[0] - df_valid[treatment].sum()
 
-        self.effect = torch.tensor(df_train[effect])
-        self.effect_valid = torch.tensor(df_valid[effect])
-        self.cost = torch.tensor(df_train[cost])
-        self.cost_valid = torch.tensor(df_valid[cost])
+        self.effect = torch.tensor(df_train[effect].astype(np.float32).values)
+        self.effect_valid = torch.tensor(df_valid[effect].astype(np.float32).values)
+        self.cost = torch.tensor(df_train[cost].astype(np.float32).values)
+        self.cost_valid = torch.tensor(df_valid[cost].astype(np.float32).values)
 
     def calculate_loss(self, validate=False):
         """Calculate the loss.
@@ -123,7 +123,8 @@ class UpliftRankerTrainer:
         prob_select_t = torch.div(exp_score_mask_t, torch.sum(exp_score_mask_t))
         prob_select_c = torch.div(exp_score_mask_c, torch.sum(exp_score_mask_c))
 
-        weighted_effect = torch.dot(effect, torch.sub(prob_select_t, prob_select_c))
-        weighted_cost = torch.dot(cost, torch.where(is_treatment, prob_select_t, prob_select_c))
-        loss = torch.div(weighted_effect, weighted_cost)
+        treatment_effect_weight = torch.sub(prob_select_t, prob_select_c).squeeze(1)
+        weighted_effect = torch.dot(effect, treatment_effect_weight)
+        weighted_cost = torch.dot(cost, treatment_effect_weight)
+        loss = torch.div(weighted_cost, weighted_effect)
         return loss
