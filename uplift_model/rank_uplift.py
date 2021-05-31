@@ -100,18 +100,13 @@ class UpliftRankerTrainer:
         self.cost = torch.tensor(df_train[cost].astype(np.float32).values)
         self.cost_valid = torch.tensor(df_valid[cost].astype(np.float32).values)
 
-        # Optimizer
-        self.optimizer = torch.optim.Adam(
-            self.ranker.parameters(), lr=learning_rate, weight_decay=weight_decay)
-        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=10, gamma=0.75)
-        self.losses = []
-        self.eval_losses = []
-        self.best_eval_loss = None
-        self.save_model_dst = 'model.pt'
+        self.init_step(learning_rate=learning_rate, weight_decay=weight_decay)
 
-    def init_step(self, save_model_dst='model.pt'):
+    def init_step(self, save_model_dst='model.pt', learning_rate=0.001, weight_decay=0.0001):
         """
         :param str save_model_dst: save model to dst.
+        :param float learning_rate:
+        :param float weight_decay:
         """
         def init_weights(m):
             if type(m) == nn.Linear:
@@ -122,6 +117,10 @@ class UpliftRankerTrainer:
         self.eval_losses = []
         self.best_eval_loss = None
         self.save_model_dst = save_model_dst
+        # Optimizer
+        self.optimizer = torch.optim.Adam(
+            self.ranker.parameters(), lr=learning_rate, weight_decay=weight_decay)
+        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=10, gamma=0.75)
 
     def train(self, steps, validate_steps=1):
         """
@@ -139,16 +138,27 @@ class UpliftRankerTrainer:
                 self.ranker.eval()
                 with torch.no_grad():
                     eval_loss = self.calculate_loss(validate=True)
-                    print("eval loss: ", eval_loss)
-                    self.eval_losses.append(eval_loss.item())
-                    if self.best_eval_loss is None or eval_loss.item() < self.best_eval_loss:
-                        # save the best model based on the eval loss
-                        torch.save({
-                            'model_state_dict': self.ranker.state_dict(),
-                            'optimizer_state_dict': self.optimizer.state_dict(),
-                            'lr_scheduler': self.scheduler.state_dict(),
-                        }, 'ckptdir/{}'.format(self.save_model_dst))
-                        self.best_eval_loss = eval_loss.item()
+
+                print("eval loss: ", eval_loss)
+                self.eval_losses.append(eval_loss.item())
+                if self.best_eval_loss is None or eval_loss.item() < self.best_eval_loss:
+                    # save the best model based on the eval loss
+                    torch.save({
+                        'model_state_dict': self.ranker.state_dict(),
+                        'optimizer_state_dict': self.optimizer.state_dict(),
+                        'lr_scheduler': self.scheduler.state_dict(),
+                    }, 'ckptdir/{}'.format(self.save_model_dst))
+                    self.best_eval_loss = eval_loss.item()
+
+    def predict(self, df_features):
+        """
+        :param pandas.DataFrame df_features:
+        :rytpe: numpy.array
+        """
+        predict_features = torch.tensor(df_features[self.features].astype(np.float32).values)
+        with torch.no_grad():
+            score = self.ranker(predict_features)
+        return score.squeeze(1).detach().numpy()
 
     def train_step(self):
         """
@@ -189,3 +199,27 @@ class UpliftRankerTrainer:
         weighted_cost = torch.dot(cost, treatment_effect_weight)
         loss = torch.div(weighted_cost, weighted_effect)
         return loss
+
+
+class UpliftRankerEnsemble:
+
+    def __init__(self, features, *model_struct_paths):
+        self.features = features
+        self.models = []
+        for net_struct, model_path in model_struct_paths:
+            ranker = UpliftRanker(net_struct)
+            ranker.load_state_dict(torch.load(model_path)['model_state_dict'])
+            ranker.eval()
+            self.models.append(ranker)
+
+    def predict(self, df_features):
+        """
+        :param pandas.DataFrame df_features:
+        :rytpe: numpy.array
+        """
+        predict_features = torch.tensor(df_features[self.features].astype(np.float32).values)
+        scores = np.zeros(df_features.shape[0])
+        for model in self.models:
+            scores += model(predict_features).squeeze(1).detach().numpy()
+        scores /= len(self.models)
+        return scores
