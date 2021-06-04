@@ -8,6 +8,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from matplotlib import pyplot as plt
+
 
 class UpliftRanker(nn.Module):
     def __init__(self, net_structures):
@@ -108,11 +110,7 @@ class UpliftRankerTrainer:
         :param float learning_rate:
         :param float weight_decay:
         """
-        def init_weights(m):
-            if type(m) == nn.Linear:
-                nn.init.xavier_uniform_(m.weight)
-                m.bias.data.fill_(0.01)
-        self.ranker.apply(init_weights)
+        self.uniform_init_weight()
         self.losses = []
         self.eval_losses = []
         self.best_eval_loss = None
@@ -122,7 +120,45 @@ class UpliftRankerTrainer:
             self.ranker.parameters(), lr=learning_rate, weight_decay=weight_decay)
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=10, gamma=0.75)
 
-    def train(self, steps, validate_steps=1):
+    def uniform_init_weight(self):
+        def init_weights(m):
+            if type(m) == nn.Linear:
+                nn.init.xavier_uniform_(m.weight)
+                m.bias.data.fill_(0.01)
+        self.ranker.apply(init_weights)
+
+    def init_and_train(
+            self, train_rounds=1, save_model_dst='model.pt', learning_rate=0.001, weight_decay=0.0001,
+            step_size=10, gamma=0.75, steps=1000, validate_steps=1, debug=False,
+    ):
+        """initialize the training with multiple rounds, and find the best model.
+
+        :param int train_rounds: initialize the train the model multiple rounds.
+        :param str save_model_dst: saved model destination.
+        :param float learning_rate:
+        :param float weight_decay: used for L2 regularization.
+        :param int step_size: learning rate scheduler, adjust the learning rate per step_size.
+        :param float gamma: learning rate weight decay.
+        :param int steps: max step to train one model.
+        :param int validate_steps: run validation step every N steps.
+        """
+        self.best_eval_loss = None
+        self.save_model_dst = save_model_dst
+        for train_round in range(train_rounds):
+            self.uniform_init_weight()
+            # Optimizer
+            self.optimizer = torch.optim.Adam(
+                self.ranker.parameters(), lr=learning_rate, weight_decay=weight_decay)
+            self.scheduler = torch.optim.lr_scheduler.StepLR(
+                self.optimizer, step_size=step_size, gamma=gamma)
+            self.losses = []
+            self.eval_losses = []
+            self.train(steps, validate_steps, debug)
+            plt.scatter(np.arange(0, len(self.eval_losses)), self.eval_losses)
+            plt.scatter(np.arange(0, len(self.losses)), self.losses)
+            plt.show()
+
+    def train(self, steps, validate_steps=1, debug=False):
         """
         :param int steps:
         :param int validate_steps: validate every N steps
@@ -130,7 +166,7 @@ class UpliftRankerTrainer:
         for step in range(steps):
             self.ranker.train()
             loss = self.train_step()
-            if step == 0 or (step + 1) % min(5, validate_steps) == 0:
+            if debug and (step == 0 or (step + 1) % min(5, validate_steps) == 0):
                 print(step, "train loss: ", loss)
             self.losses.append(loss.item())
 
@@ -139,7 +175,8 @@ class UpliftRankerTrainer:
                 with torch.no_grad():
                     eval_loss = self.calculate_loss(validate=True)
 
-                print("eval loss: ", eval_loss)
+                if debug:
+                    print("eval loss: ", eval_loss)
                 self.eval_losses.append(eval_loss.item())
                 if self.best_eval_loss is None or eval_loss.item() < self.best_eval_loss:
                     # save the best model based on the eval loss
