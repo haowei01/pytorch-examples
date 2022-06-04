@@ -69,15 +69,21 @@ ssh -fN $REMOTE_MACHINE -L 6006:127.0.0.1:6006
 ![tensorboard screenshot](./images/tensorboard_ndcg.png)
 
 ## Dependencies:
-* pytorch-1.0
+* pytorch-1.11
 * pandas
 * numpy
 * sklearn
 
 install from anaconda:
 ```
-conda create -n pytorch python=2.7 (or python=3.6)
+conda create -n pytorch python=3.7
 ```
+
+on Mac, use
+```
+conda install -c pytorch pytorch==1.11
+```
+
 use nvcc --version to check the cuda version (e.g. 9.0)
 ```
 conda install pytorch torchvision cudatoolkit=9.0 -c pytorch
@@ -86,5 +92,22 @@ conda install -c conda-forge matplotlib
 ```
 
 ## Datasets:
-* [Mircosoft Web-10K](https://www.microsoft.com/en-us/research/project/mslr/)
+use `ranking/download_data.sh` to prepare the data and put in the following directory 
+```
+ranking/data
+├── expedia
+│   ├── basicPythonBenchmark.zip
+│   ├── randomBenchmark.zip
+│   ├── test.zip
+│   ├── testOrderBenchmark.zip
+│   └── train.zip
+└── mslr-web10k
+    ├── Fold1
+    │   ├── test.txt
+    │   ├── train.txt
+    │   └── vali.txt
+    └── MSLR-WEB10K.zip
+```
+
+* [Mircosoft Web-10K](https://www.microsoft.com/en-us/research/project/mslr/) 
 * [Personalize Expedia Hotel Searches - ICDM 2013](https://www.kaggle.com/c/expedia-personalized-sort/data)

@@ -252,14 +252,14 @@ def baseline_pairwise_training_loop(
     minibatch = 0
     count = 0
 
-    for x_i, y_i, x_j, y_j in train_loader.generate_query_pair_batch(batch_size):
+    for x_i, y_i, x_j, y_j in train_loader.generate_query_pair_batch(batchsize=batch_size):
         if x_i is None or x_i.shape[0] == 0:
             continue
         x_i, x_j = torch.tensor(x_i, dtype=precision, device=device), torch.tensor(x_j, dtype=precision, device=device)
         # binary label
         y = torch.tensor((y_i > y_j).astype(np.float32), dtype=precision, device=device)
 
-        net.zero_grad()
+        optimizer.zero_grad()
 
         y_pred = net(x_i, x_j)
         loss = loss_func(y_pred, y)
