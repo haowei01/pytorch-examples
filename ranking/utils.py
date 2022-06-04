@@ -16,10 +16,7 @@ from metrics import NDCG
 
 
 def get_device():
-    if torch.cuda.is_available():
-        device = "cuda:{}".format(np.random.randint(torch.cuda.device_count()))
-    else:
-        device = "cpu"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     print("use device", device)
     return device
 

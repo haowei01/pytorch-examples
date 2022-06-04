@@ -151,6 +151,7 @@ def train_rank_net(
     device = get_device()
     net.to(device)
     net_inference.to(device)
+    print(net)
 
     # initialize to make training faster
     net.apply(init_weights)
