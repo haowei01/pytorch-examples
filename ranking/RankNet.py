@@ -296,17 +296,13 @@ def factorized_training_loop(
             continue
         Y = Y.reshape(-1, 1)
         rel_diff = Y - Y.T
-        pos_pairs = (rel_diff > 0).astype(np.float32)
-        num_pos_pairs = np.sum(pos_pairs)
+        num_pos_pairs = np.sum((rel_diff > 0))
         # skip negative sessions, no relevant info:
         if num_pos_pairs == 0:
             continue
-        neg_pairs = (rel_diff < 0).astype(np.float32)
         num_pairs = 2 * num_pos_pairs  # num pos pairs and neg pairs are always the same
 
         rel_diff_tensor = torch.tensor(rel_diff, device=device)
-        pos_pairs = torch.tensor(pos_pairs, dtype=precision, device=device)
-        neg_pairs = torch.tensor(neg_pairs, dtype=precision, device=device)
 
         X_tensor = torch.tensor(X, dtype=precision, device=device)
         y_pred = net(X_tensor)
@@ -336,12 +332,19 @@ def factorized_training_loop(
             with torch.no_grad():
                 l_pos = 1 + torch.exp(sigma * (y_pred - y_pred.t()))
                 l_neg = 1 + torch.exp(- sigma * (y_pred - y_pred.t()))
-                l = -sigma * pos_pairs / l_pos + sigma * neg_pairs / l_neg
-                loss += torch.sum(
-                    torch.log(l_neg) * pos_pairs + torch.log(l_pos) * neg_pairs,
-                    (0, 1)
-                )
-                back = torch.sum(l, dim=1, keepdim=True)
+                lambda_y = torch.where(rel_diff_tensor > 0, -sigma / l_pos, zero) + torch.where(
+                    rel_diff_tensor < 0, sigma / l_neg, zero)
+                if debug:
+                    # For factorization, given the lambda_ij is directly calculated, no need to
+                    # calculate the loss, unless in debug mode
+                    loss += torch.sum(
+                        torch.where(
+                            rel_diff_tensor != 0, torch.logaddexp(sigma * y_pred, sigma * y_pred.t()),
+                            zero
+                        ) - torch.where(rel_diff_tensor > 0, sigma * y_pred, zero)
+                        - torch.where(rel_diff_tensor < 0, sigma * y_pred.t(), zero)
+                    )
+                back = torch.sum(lambda_y, dim=1, keepdim=True)
 
                 if torch.sum(back, dim=(0, 1)) == float('inf') or back.shape != y_pred.shape:
                     import ipdb; ipdb.set_trace()
