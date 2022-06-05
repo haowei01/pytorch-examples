@@ -297,25 +297,40 @@ def factorized_training_loop(
         Y = Y.reshape(-1, 1)
         rel_diff = Y - Y.T
         pos_pairs = (rel_diff > 0).astype(np.float32)
-        num_pos_pairs = np.sum(pos_pairs, (0, 1))
+        num_pos_pairs = np.sum(pos_pairs)
         # skip negative sessions, no relevant info:
         if num_pos_pairs == 0:
             continue
         neg_pairs = (rel_diff < 0).astype(np.float32)
         num_pairs = 2 * num_pos_pairs  # num pos pairs and neg pairs are always the same
 
+        rel_diff_tensor = torch.tensor(rel_diff, device=device)
         pos_pairs = torch.tensor(pos_pairs, dtype=precision, device=device)
         neg_pairs = torch.tensor(neg_pairs, dtype=precision, device=device)
 
         X_tensor = torch.tensor(X, dtype=precision, device=device)
         y_pred = net(X_tensor)
+        zero = torch.tensor(0, dtype=precision, device=device)
 
         if training_algo == SUM_SESSION:
-            C_pos = torch.log(1 + torch.exp(-sigma * (y_pred - y_pred.t())))
-            C_neg = torch.log(1 + torch.exp(sigma * (y_pred - y_pred.t())))
+            # for Y_i > Y_j, loss = log(1 + exp(-sigma*(F(Xi) - F(Xj))))
+            # equal to log(exp(sigma*F(Xj)) + exp(sigma*F(Xi))) - sigma * F(Xi)
+            # C_pos = torch.log(1 + torch.exp(-sigma * (y_pred - y_pred.t())))
 
-            C = pos_pairs * C_pos + neg_pairs * C_neg
-            loss += torch.sum(C, (0, 1))
+            # for Y_i < Y_j, loss = log(1 + exp(sigma*(F(Xi) - F(Xj))))
+            # equal to log(exp(sigma*F(Xi)) + exp(sigma*F(Xj))) - sigma * F(Xj)
+            # C_neg = torch.log(1 + torch.exp(sigma * (y_pred - y_pred.t())))
+
+            # so total loss is equal to
+            # log(exp(sigma*F(Xi)) + exp(sigma*F(Xj))) * non_neg_pairs - pos_pairs * sigma * F(Xi)
+            # - neg_pairs * sigma * F(Xj)
+
+            # C = pos_pairs * C_pos + neg_pairs * C_neg
+            C = torch.where(
+                rel_diff_tensor != 0, torch.logaddexp(sigma * y_pred, sigma * y_pred.t()), zero
+            ) - torch.where(rel_diff_tensor > 0, sigma * y_pred, zero) \
+              - torch.where(rel_diff_tensor < 0, sigma * y_pred.t(), zero)
+            loss += torch.sum(C)
         elif training_algo == ACC_GRADIENT:
             y_pred_batch.append(y_pred)
             with torch.no_grad():
