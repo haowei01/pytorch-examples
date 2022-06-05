@@ -175,8 +175,8 @@ def train(
             y_pred_batch.append(y_pred)
             # compute the rank order of each document
             rank_df = pd.DataFrame({"Y": Y, "doc": np.arange(Y.shape[0])})
-            rank_df = rank_df.sort_values("Y").reset_index(drop=True)
-            rank_order = rank_df.sort_values("doc").index.values + 1
+            # order the document using the relevance score, higher score's order rank's higher.
+            rank_order = np.argsort(-rank_df["Y"]) + 1
 
             with torch.no_grad():
                 pos_pairs_score_diff = 1.0 + torch.exp(sigma * (y_pred - y_pred.t()))
