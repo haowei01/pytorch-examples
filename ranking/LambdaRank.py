@@ -174,7 +174,7 @@ def train(
             y_pred = net(X_tensor)
             y_pred_batch.append(y_pred)
             # compute the rank order of each document
-            rank_df = pd.DataFrame({"Y": Y, "doc": np.arange(Y.shape[0])})
+            rank_df = pd.DataFrame({"Y": y_pred, "doc": np.arange(Y.shape[0])})
             # order the document using the relevance score, higher score's order rank's higher.
             rank_order = np.argsort(-rank_df["Y"]) + 1
 
