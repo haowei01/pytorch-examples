@@ -174,9 +174,8 @@ def train(
             y_pred = net(X_tensor)
             y_pred_batch.append(y_pred)
             # compute the rank order of each document
-            rank_df = pd.DataFrame({"Y": Y, "doc": np.arange(Y.shape[0])})
             # order the document using the relevance score, higher score's order rank's higher.
-            rank_order = np.argsort(-rank_df["Y"]) + 1
+            rank_order = y_pred.reshape(-1).argsort(descending=True).argsort() + 1
 
             with torch.no_grad():
                 pos_pairs_score_diff = 1.0 + torch.exp(sigma * (y_pred - y_pred.t()))
@@ -193,7 +192,7 @@ def train(
                 else:
                     raise ValueError("ndcg_gain method not supported yet {}".format(ndcg_gain_in_train))
 
-                rank_order_tensor = torch.tensor(rank_order, dtype=precision, device=device).view(-1, 1)
+                rank_order_tensor = rank_order.reshape(-1, 1)
                 decay_diff = 1.0 / torch.log2(rank_order_tensor + 1.0) - 1.0 / torch.log2(rank_order_tensor.t() + 1.0)
 
                 delta_ndcg = torch.abs(N * gain_diff * decay_diff)
