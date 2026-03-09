@@ -13,3 +13,6 @@ ranking/data/expedia
 ranking/ckptdir/
 
 debug_dirs/
+
+.gitconfig
+.claude/
